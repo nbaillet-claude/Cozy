@@ -21,13 +21,23 @@ Pick a room, click **come in** (browsers only allow sound after a click), then c
 
 | # | id | Room | What's going on |
 | - | -- | ---- | --------------- |
-| 1 | `living-room` | Living room | An armchair, a steaming mug, floor lamp, bookshelf, a cat asleep on the sofa. Rainy city outside. |
+| 1 | `living-room` | Living room | An armchair, a steaming mug, floor lamp, bookshelf, a cat asleep on the sofa. Rainy city outside, seen through refractive rain-on-glass (see below). |
 | 2 | `window-seat` | Window seat | A teal reading nook at dusk. Someone curled up with a book and blanket, a grey cat on the cushions, a wet street outside. |
 | 3 | `attic-bedroom` | Attic bedroom | Sloped roof, a skylight over the bed with rain drumming on it, a round window, someone reading in bed. The rain sounds louder here. |
 | 4 | `kitchen` | Kitchen | Sage cabinets, a pendant lamp over the table, someone stirring a pot, a kettle, a cat on a chair, a rainy garden. |
 | 5 | `cabin` | Cabin | Log walls, a crackling stone fireplace, someone in a plaid blanket on a sheepskin rug, a cat by the hearth, pine forest in the rain. |
 
 Every room has its own light, view, people and sound. Each person breathes, glances out at the rain and sips or turns a page now and then.
+
+## Rain on glass (living room)
+
+The living-room window uses its own shader, `addRainGlass` in `wwwroot/js/kit.js`. For each pixel it finds where the view ray lands on the picture of the city outside (so parallax still works), then:
+
+- **drops:** slowly appearing and fading beads, plus drops that slide down in stick-slip jerks, each bending the view like a tiny water lens and carrying a highlight and a dark rim
+- **mist and trails:** the glass is misted and out of focus; drops and the trails they leave wipe it clear, with small droplets stranded behind
+- **controls:** the rain slider changes how many drops there are and how fast they run, and a lightning flash lights the view through the glass
+
+It is written from scratch from the general technique. The other four rooms still use the simpler glass.
 
 ## Controls ("notes")
 

@@ -718,3 +718,171 @@ export function curtain(ctx, { x, y, z, w = 0.7, h = 2.6, color = 0x2f3a28, opac
     ctx.anim((t) => { m.rotation.y = Math.sin(t * 0.4 + ph) * 0.012; });
     return m;
 }
+
+// ---------- refractive rain on glass ----------
+// A pane of glass drawn by a fragment shader. For each pixel it works out where the view ray would hit the
+// picture of the outside (so parallax still works), then bends that look-up through water drops and blurs it
+// through a misty film that running drops wipe clear. Drops, trails and glints are all procedural.
+//   - beads:   one drop per hashed grid cell, fading in and out slowly
+//   - runners: columns with a drop that slides down in stick-slip jerks, leaving a clear trail and tiny droplets
+//   - lens:    each drop shifts the look-up by an inverted offset (like looking through a water lens)
+//   - glints:  a bright highlight from the room's lamps and a dark rim on every drop
+const RAIN_GLASS_VERT = /* glsl */`
+    varying vec2 vUv;
+    varying vec3 vWorld;
+    void main() {
+        vUv = uv;
+        vWorld = (modelMatrix * vec4(position, 1.0)).xyz;
+        gl_Position = projectionMatrix * viewMatrix * vec4(vWorld, 1.0);
+    }`;
+
+const RAIN_GLASS_FRAG = /* glsl */`
+    uniform sampler2D uMap;
+    uniform float uTime, uRain, uBright, uRefr, uHaze, uSeed, uDrop;
+    uniform vec2 uSize, uBdSize, uTexel;
+    uniform mat4 uBdInv;
+    uniform vec3 uGlint;
+    varying vec2 vUv;
+    varying vec3 vWorld;
+
+    // what every drop adds up to
+    vec2 gN; float gMask, gClear, gSpec, gRim;
+
+    float rnd(float n) { return fract(sin(n * 91.3458) * 47453.5453); }
+    float rnd2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+
+    // One water drop seen as a small lens. nd = offset from the drop centre in drop radii.
+    void lens(vec2 nd, float dist, float inside) {
+        float z = sqrt(max(0.0, 1.0 - dist * dist));
+        vec3 n3 = normalize(vec3(nd, z + 0.25));
+        vec3 h1 = normalize(vec3(-0.45, 0.55, 0.7) + vec3(0.0, 0.0, 1.0)); // lamp, upper left
+        vec3 h2 = normalize(vec3(0.5, -0.4, 0.75) + vec3(0.0, 0.0, 1.0));  // soft bounce, lower right
+        gSpec += (pow(max(dot(n3, h1), 0.0), 55.0) + 0.35 * pow(max(dot(n3, h2), 0.0), 28.0)) * inside;
+        gRim = max(gRim, smoothstep(0.55, 0.98, dist) * inside);
+        gN += -nd * inside;           // inverted, magnified look-up
+        gMask = max(gMask, inside);
+        gClear = max(gClear, inside); // a drop is clear water, even on misty glass
+    }
+
+    void addBeads(vec2 p, float cell, float dens, float seed, float rmin, float rmax) {
+        vec2 g = p / cell, id = floor(g), f = fract(g) - 0.5;
+        float h = rnd2(id + seed);
+        if (h > dens) return;
+        vec2 o = (vec2(rnd2(id + seed + 4.1), rnd2(id + seed + 9.7)) - 0.5) * 0.3;
+        float r = mix(rmin, rmax, rnd2(id + seed + 2.3));
+        float life = fract(uTime * (0.012 + 0.02 * h) + rnd2(id + seed + 6.1));
+        r *= smoothstep(0.0, 0.1, life) * (1.0 - smoothstep(0.75, 1.0, life));
+        if (r < 0.02) return;
+        vec2 d = (f - o) / r;
+        float dist = length(d);
+        float inside = 1.0 - smoothstep(0.82, 1.0, dist);
+        if (inside > 0.0) lens(d, dist, inside);
+    }
+
+    void addRunners(vec2 p, float colW, float dens, float speed, float seed, float rx0) {
+        float id = floor(p.x / colW);
+        float H = uSize.y / uDrop;
+        for (int k = 0; k < 2; k++) {
+            float sd = id * 1.731 + float(k) * 37.17 + seed;
+            if (rnd(sd) > dens) continue;
+            float period = H + 0.5;
+            float v = speed * (0.45 + rnd(sd + 2.0)) * 0.045;
+            float tt = uTime * v / period + rnd(sd + 3.0);
+            float s = tt + 0.022 * sin(tt * 37.7 + sd * 3.0);       // stick-slip: always moves on, sometimes barely
+            float cyc = fract(s);
+            float life = smoothstep(0.0, 0.03, cyc) * (1.0 - smoothstep(0.93, 1.0, cyc));
+            float yh = H * 0.5 + 0.15 - cyc * period;               // head height, from above the top to below the bottom
+            float ph = sd * 5.0;
+            float xBase = (id + 0.5 + (rnd(sd + 5.0) - 0.5) * 0.35) * colW;
+            float rx = rx0 * (0.8 + 0.5 * rnd(sd + 7.0));
+            float ry = rx * 1.55;
+
+            // the drop itself, wandering a little as it falls
+            float headX = xBase + sin(yh * 31.0 + ph) * 0.0035;
+            vec2 d = vec2((p.x - headX) / rx, (p.y - yh) / ry);
+            float dist = length(d);
+            float head = (1.0 - smoothstep(0.82, 1.0, dist)) * life;
+            if (head > 0.0) lens(d, dist, head);
+
+            // the clear trail it leaves behind
+            float up = p.y - yh;
+            float tl = min(cyc * period, 0.6);
+            if (up > 0.0 && up < tl) {
+                float along = up / tl;
+                float dx = p.x - (xBase + sin(p.y * 31.0 + ph) * 0.0035);
+                float w = rx * 0.5 * (1.0 - 0.6 * along);
+                float tm = (1.0 - smoothstep(w * 0.5, w, abs(dx))) * (1.0 - smoothstep(0.55, 1.0, along)) * life;
+                gClear = max(gClear, tm * 0.95);
+                gN += vec2(clamp(dx / w, -1.0, 1.0), 0.0) * -0.25 * tm;
+
+                // tiny droplets stranded along the way
+                float yi = floor(p.y / 0.055);
+                vec2 rid = vec2(sd * 3.1, yi);
+                if (rnd2(rid) < 0.5) {
+                    float cy = (yi + 0.15 + 0.7 * rnd2(rid + 1.7)) * 0.055;
+                    float cx = xBase + sin(cy * 31.0 + ph) * 0.0035 + (rnd2(rid + 2.9) - 0.5) * 0.01;
+                    float rr = max((0.004 + 0.004 * rnd2(rid + 4.3)) * (1.0 - smoothstep(0.5, 1.0, along)) * life, 1e-4);
+                    vec2 dd = vec2(p.x - cx, p.y - cy) / rr;
+                    float dd2 = length(dd);
+                    float ins = 1.0 - smoothstep(0.8, 1.0, dd2);
+                    if (ins > 0.0) lens(dd, dd2, ins);
+                }
+            }
+        }
+    }
+
+    void main() {
+        vec2 p = (vUv - 0.5) * uSize / uDrop;   // pane position in drop-size units
+        gN = vec2(0.0); gMask = 0.0; gClear = 0.0; gSpec = 0.0; gRim = 0.0;
+        float R = uRain;
+        if (R > 0.01) {
+            float dens = 0.06 + 0.4 * R;
+            addBeads(p, 0.04, dens, uSeed, 0.14, 0.30);
+            addBeads(p + 0.31, 0.09, dens * 0.5, uSeed + 11.0, 0.10, 0.26);
+            addRunners(p, 0.075, 0.2 + 0.55 * R, 0.6 + 0.9 * R, uSeed + 21.0, 0.0075);
+            addRunners(p + 0.2, 0.15, 0.12 + 0.4 * R, 0.5 + 0.7 * R, uSeed + 33.0, 0.011);
+        }
+
+        // where this view ray lands on the picture of the outside, then bend it through the drops
+        vec3 dir = normalize(vWorld - cameraPosition);
+        vec3 pl = (uBdInv * vec4(vWorld, 1.0)).xyz;
+        vec3 dl = (uBdInv * vec4(dir, 0.0)).xyz;
+        vec2 hit = pl.xy + dl.xy * (-pl.z / dl.z);
+        vec2 uv = hit / uBdSize + 0.5 + gN * uRefr / uBdSize;
+
+        // misty film everywhere, wiped clear by drops and trails
+        float lod = (1.0 - clamp(gClear, 0.0, 1.0)) * uHaze * smoothstep(0.0, 0.5, R);
+        vec2 o = uTexel * exp2(lod) * 0.75;
+        vec3 col = 0.4 * textureLod(uMap, uv, lod).rgb
+                 + 0.15 * (textureLod(uMap, uv + vec2(o.x, o.y), lod).rgb + textureLod(uMap, uv - vec2(o.x, o.y), lod).rgb
+                         + textureLod(uMap, uv + vec2(o.x, -o.y), lod).rgb + textureLod(uMap, uv - vec2(o.x, -o.y), lod).rgb);
+        col *= vec3(uBright, uBright * 1.02, uBright * 1.08);   // follows the lightning flash
+
+        col *= 1.0 + 0.25 * gMask;      // a drop gathers a little light
+        col *= 1.0 - 0.5 * gRim;        // dark edge ring
+        col += uGlint * gSpec * 0.9;    // highlights
+        gl_FragColor = vec4(col, 1.0);
+    }`;
+
+// `backdrop` is the picture of the outside from ctx.backdrop(). It gets hidden: this glass draws it itself.
+export function addRainGlass(ctx, { w, h, backdrop, refr = 3.4, haze = 3.2, drop = 2.6, glint = [1.0, 0.82, 0.55] }) {
+    backdrop.updateMatrixWorld(true);
+    const map = backdrop.material.map;
+    const u = {
+        uMap: { value: map }, uTime: { value: 0 }, uRain: { value: ctx.state.rain }, uBright: { value: backdrop.userData.flash?.base ?? 1.25 },
+        uSize: { value: new THREE.Vector2(w, h) },
+        uBdSize: { value: new THREE.Vector2(backdrop.geometry.parameters.width, backdrop.geometry.parameters.height) },
+        uBdInv: { value: backdrop.matrixWorld.clone().invert() },
+        uTexel: { value: new THREE.Vector2(1 / map.image.width, 1 / map.image.height) },
+        uRefr: { value: refr }, uHaze: { value: haze }, uDrop: { value: drop },
+        uGlint: { value: new THREE.Color(glint[0], glint[1], glint[2]) }, uSeed: { value: Math.random() * 40 },
+    };
+    const mat = new THREE.ShaderMaterial({ uniforms: u, vertexShader: RAIN_GLASS_VERT, fragmentShader: RAIN_GLASS_FRAG, transparent: true, depthWrite: false });
+    const glass = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
+    glass.renderOrder = -1; // first among the see-through things, so glows, steam and rain streaks draw over it
+    ctx.world.add(glass);
+    backdrop.visible = false;
+    if (backdrop.userData.flash) backdrop.userData.flash.apply = (v) => { u.uBright.value = v; };
+    ctx.anim((t) => { u.uTime.value = t; u.uRain.value = ctx.state.rain; });
+    return glass;
+}

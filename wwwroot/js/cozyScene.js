@@ -69,7 +69,9 @@ function backdrop({ style, pal, pos, size, rot = [0, 0, 0], quat, bright = 1.25,
     m.rotation.set(...rot);
     if (quat) m.quaternion.copy(quat);
     world.add(m);
-    flashables.push({ mat, base: bright, gain });
+    const rec = { mat, base: bright, gain };
+    flashables.push(rec);
+    m.userData.flash = rec;
     return m;
 }
 
@@ -202,6 +204,7 @@ function updateLightning(t, dt) {
     for (const b of flashables) {
         const v = b.base + f * (b.gain ?? cfg.flashGain);
         b.mat.color.setRGB(v, v * 1.02, v * 1.08);
+        if (b.apply) b.apply(v);
     }
     if (windowLight) windowLight.intensity = cfg.windowLight.intensity + f * 2.2;
 }

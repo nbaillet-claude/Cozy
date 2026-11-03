@@ -47,9 +47,10 @@ export default {
         for (const x of [WIN.x0 + mx, WIN.x0 + 2 * mx]) world.add(box(0.05, WIN.y1 - WIN.y0, 0.1, frame, { x, y: (WIN.y0 + WIN.y1) / 2, z: fz }));
         world.add(box(WIN.x1 - WIN.x0, 0.05, 0.1, frame, { y: (WIN.y0 + WIN.y1) / 2 + 0.1, z: fz }));
 
-        const glass = kit.addGlass(ctx, { w: WIN.x1 - WIN.x0, h: WIN.y1 - WIN.y0 });
+        // rain on the glass: drops bend and blur the view of the city behind them
+        const outside = ctx.backdrop({ style: 'city', pos: [0, 4.3, -15], size: [52, 15] });
+        const glass = kit.addRainGlass(ctx, { w: WIN.x1 - WIN.x0, h: WIN.y1 - WIN.y0, backdrop: outside });
         glass.position.set(0, (WIN.y0 + WIN.y1) / 2, ROOM.z0 + 0.05);
-        ctx.backdrop({ style: 'city', pos: [0, 4.3, -15], size: [52, 15] });
 
         // ----- rug, sofa, art -----
         world.add(mesh(new THREE.PlaneGeometry(4.6, 3.4), std(0xffffff, 1, 0, { map: kit.rugTexture() }), { x: 0.2, y: 0.012, z: 0.5, rx: -Math.PI / 2, cast: false }));
