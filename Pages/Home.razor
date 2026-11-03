@@ -1,0 +1,173 @@
+﻿@page "/"
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<PageTitle>Cozy Rain</PageTitle>
+
+<canvas @ref="_canvas" class="scene" aria-label="A person sitting in an armchair in a cozy room while it rains outside"></canvas>
+
+@if (_webGlFailed)
+{
+    <div class="overlay">
+        <div class="card">
+            <h1>Cozy Rain</h1>
+            <p>This browser couldn't start WebGL, so the room can't be drawn. Try a recent Chrome, Edge, Firefox or Safari.</p>
+        </div>
+    </div>
+}
+else if (!_entered)
+{
+    <div class="overlay">
+        <div class="card">
+            <h1>Cozy Rain</h1>
+            <p class="tagline">Warm lamps, a hot drink, and rain on the window.</p>
+            <button class="enter" disabled="@(!_sceneReady)" @onclick="EnterAsync">
+                @(_sceneReady ? "Enter the cozy" : "Warming up the room…")
+            </button>
+            <p class="hint">Sound on. Best with headphones.</p>
+        </div>
+    </div>
+}
+else
+{
+    <button class="panel-toggle" aria-label="Toggle controls" aria-expanded="@_panelOpen" @onclick="() => _panelOpen = !_panelOpen">
+        @(_panelOpen ? "×" : "☰")
+    </button>
+
+    @if (_panelOpen)
+    {
+        <section class="panel" aria-label="Controls">
+            <div class="row">
+                <button class="chip @(_soundOn ? "on" : "")" aria-pressed="@_soundOn" @onclick="ToggleSoundAsync">
+                    @(_soundOn ? "🔊 Sound on" : "🔇 Sound off")
+                </button>
+                <button class="chip @(_thunder ? "on" : "")" aria-pressed="@_thunder" @onclick="ToggleThunderAsync">
+                    ⚡ Thunder
+                </button>
+            </div>
+
+            <label>
+                <span>Volume <em>@_volume%</em></span>
+                <input type="range" min="0" max="100" value="@_volume" @oninput="OnVolumeAsync" />
+            </label>
+            <label>
+                <span>Rain <em>@_rain%</em></span>
+                <input type="range" min="0" max="100" value="@_rain" @oninput="OnRainAsync" />
+            </label>
+            <label>
+                <span>Lamp warmth <em>@_warmth%</em></span>
+                <input type="range" min="0" max="100" value="@_warmth" @oninput="OnWarmthAsync" />
+            </label>
+        </section>
+    }
+}
+
+@code {
+    private ElementReference _canvas;
+    private IJSObjectReference? _scene;
+    private IJSObjectReference? _audio;
+
+    private bool _sceneReady;
+    private bool _webGlFailed;
+    private bool _entered;
+    private bool _panelOpen = true;
+    private bool _soundOn = true;
+    private bool _thunder = true;
+    private int _volume = 60;
+    private int _rain = 60;
+    private int _warmth = 65;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        _scene = await JS.InvokeAsync<IJSObjectReference>("import", "./js/cozyScene.js");
+        _audio = await JS.InvokeAsync<IJSObjectReference>("import", "./js/cozyAudio.js");
+
+        var ok = await _scene.InvokeAsync<bool>("init", _canvas, new
+        {
+            rain = _rain / 100.0,
+            warmth = _warmth / 100.0,
+            thunder = _thunder
+        });
+
+        if (ok)
+        {
+            // Start with the controls tucked away on phones so the room gets the whole screen.
+            _panelOpen = !await _scene.InvokeAsync<bool>("isNarrow");
+            _sceneReady = true;
+        }
+        else
+        {
+            _webGlFailed = true;
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task EnterAsync()
+    {
+        // Browsers only allow audio after a user gesture, so sound starts here.
+        _entered = true;
+        if (_audio is not null)
+        {
+            await _audio.InvokeVoidAsync("start", _volume / 100.0, _rain / 100.0, _thunder);
+        }
+    }
+
+    private async Task ToggleSoundAsync()
+    {
+        _soundOn = !_soundOn;
+        if (_audio is not null) await _audio.InvokeVoidAsync("setMuted", !_soundOn);
+    }
+
+    private async Task ToggleThunderAsync()
+    {
+        _thunder = !_thunder;
+        if (_scene is not null) await _scene.InvokeVoidAsync("setThunder", _thunder);
+        if (_audio is not null) await _audio.InvokeVoidAsync("setThunder", _thunder);
+    }
+
+    private async Task OnVolumeAsync(ChangeEventArgs e)
+    {
+        _volume = ParsePercent(e);
+        if (_audio is not null) await _audio.InvokeVoidAsync("setVolume", _volume / 100.0);
+    }
+
+    private async Task OnRainAsync(ChangeEventArgs e)
+    {
+        _rain = ParsePercent(e);
+        if (_scene is not null) await _scene.InvokeVoidAsync("setRain", _rain / 100.0);
+        if (_audio is not null) await _audio.InvokeVoidAsync("setRain", _rain / 100.0);
+    }
+
+    private async Task OnWarmthAsync(ChangeEventArgs e)
+    {
+        _warmth = ParsePercent(e);
+        if (_scene is not null) await _scene.InvokeVoidAsync("setWarmth", _warmth / 100.0);
+    }
+
+    private static int ParsePercent(ChangeEventArgs e) =>
+        int.TryParse(e.Value?.ToString(), out var v) ? Math.Clamp(v, 0, 100) : 0;
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            if (_scene is not null)
+            {
+                await _scene.InvokeVoidAsync("dispose");
+                await _scene.DisposeAsync();
+            }
+            if (_audio is not null)
+            {
+                await _audio.InvokeVoidAsync("stop");
+                await _audio.DisposeAsync();
+            }
+        }
+        catch (JSDisconnectedException)
+        {
+            // Page is closing; nothing to clean up.
+        }
+    }
+}
