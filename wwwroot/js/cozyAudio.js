@@ -14,6 +14,10 @@ let tickTimer = null;
 let started = false;
 
 const state = { volume: 0.6, rain: 0.6, muted: false, thunder: true };
+// Each scene can tune how the rain sounds from inside: muffling, patter, rumble, a fire, the clock.
+const DEF_PROFILE = { lp: 5200, drops: 1, rumble: 1, wash: 1400, hiss: 1, fire: false, tick: true };
+let profile = { ...DEF_PROFILE };
+let lpNode = null, washBPNode = null, fireBus = null;
 
 function makeNoise(seconds, kind) {
     const rate = ctx.sampleRate;
@@ -65,8 +69,11 @@ function applyRain() {
     const t = ctx.currentTime;
     // Intensity shapes the mix: light rain is mostly gentle hiss + drops, heavy rain adds wash and low rumble.
     washGain.gain.setTargetAtTime(0.05 + r * 0.55, t, 0.15);
-    hissGain.gain.setTargetAtTime(0.03 + r * 0.22, t, 0.15);
-    rumbleGain.gain.setTargetAtTime(Math.max(0, r - 0.25) * 0.5, t, 0.2);
+    hissGain.gain.setTargetAtTime((0.03 + r * 0.22) * profile.hiss, t, 0.15);
+    rumbleGain.gain.setTargetAtTime(Math.max(0, r - 0.25) * 0.5 * profile.rumble, t, 0.2);
+    if (lpNode) lpNode.frequency.setTargetAtTime(profile.lp, t, 0.3);
+    if (washBPNode) washBPNode.frequency.setTargetAtTime(profile.wash, t, 0.3);
+    if (fireBus) fireBus.gain.setTargetAtTime(profile.fire ? 1 : 0, t, 0.4);
 }
 
 function applyMaster() {
@@ -103,15 +110,38 @@ let dropNoise = null;
 function scheduleDrops() {
     // Look-ahead scheduler so drops stay smooth even if the main thread stutters.
     const now = ctx.currentTime;
-    const rate = 6 + state.rain * 60; // drops per second
+    if (profile.fire) firePops(now);
+    const rate = (6 + state.rain * 60) * profile.drops; // drops per second
     const horizon = 0.25;
     const n = Math.round(rate * horizon);
     for (let i = 0; i < n; i++) drop(now + Math.random() * horizon);
 }
 
+// Crackling fire: short random pops and snaps (through fireBus, not muffled like the rain).
+function firePops(now) {
+    const n = Math.round(10 * 0.25 + (Math.random() < 0.3 ? 1 : 0));
+    for (let i = 0; i < n; i++) {
+        const when = now + Math.random() * 0.25;
+        const src = ctx.createBufferSource();
+        src.buffer = dropNoise;
+        const bp = ctx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.value = 500 + Math.random() * 2600;
+        bp.Q.value = 0.8 + Math.random() * 2;
+        const g = ctx.createGain();
+        const snap = Math.random() < 0.12;
+        const peak = (snap ? 0.28 : 0.04) * (0.4 + Math.random() * 0.8);
+        g.gain.setValueAtTime(0, when);
+        g.gain.linearRampToValueAtTime(peak, when + 0.001);
+        g.gain.exponentialRampToValueAtTime(0.0001, when + (snap ? 0.05 : 0.02) + Math.random() * 0.03);
+        src.connect(bp).connect(g).connect(fireBus);
+        src.start(when, Math.random() * 0.6, 0.12);
+    }
+}
+
 let tickToggle = false;
 function tick() {
-    if (!ctx || state.muted) return;
+    if (!ctx || state.muted || !profile.tick) return;
     const t = ctx.currentTime;
     const src = ctx.createBufferSource();
     src.buffer = dropNoise;
@@ -162,6 +192,12 @@ export async function start(volume = 0.6, rain = 0.6, thunder = true) {
     body.frequency.value = 250;
     body.gain.value = 3;
     room.connect(lp).connect(body).connect(master);
+    lpNode = lp;
+
+    // The fire lives in the room, so it skips the "heard through a window" filter.
+    fireBus = ctx.createGain();
+    fireBus.gain.value = 0;
+    fireBus.connect(master);
 
     rainBus = ctx.createGain();
     rainBus.connect(room);
@@ -176,6 +212,7 @@ export async function start(volume = 0.6, rain = 0.6, thunder = true) {
     washBP.type = 'bandpass';
     washBP.frequency.value = 1400;
     washBP.Q.value = 0.35;
+    washBPNode = washBP;
     loopSource(pink).connect(washBP).connect(washGain).connect(rainBus);
 
     // Hiss: brighter top end.
@@ -192,6 +229,20 @@ export async function start(volume = 0.6, rain = 0.6, thunder = true) {
     rumbleLP.frequency.value = 380;
     loopSource(brown).connect(rumbleLP).connect(rumbleGain).connect(rainBus);
 
+    // Fire roar: warm low-passed noise with a slow flutter.
+    const fireLP = ctx.createBiquadFilter();
+    fireLP.type = 'lowpass';
+    fireLP.frequency.value = 600;
+    const fireRoar = ctx.createGain();
+    fireRoar.gain.value = 0.06;
+    const flutter = ctx.createOscillator();
+    flutter.frequency.value = 0.3;
+    const flutterAmt = ctx.createGain();
+    flutterAmt.gain.value = 0.02;
+    flutter.connect(flutterAmt).connect(fireRoar.gain);
+    flutter.start();
+    loopSource(brown).connect(fireLP).connect(fireRoar).connect(fireBus);
+
     applyRain();
     master.gain.setValueAtTime(0, ctx.currentTime);
     applyMaster();
@@ -206,6 +257,7 @@ export function setVolume(v) { state.volume = v; applyMaster(); }
 export function setMuted(m) { state.muted = !!m; applyMaster(); }
 export function setRain(r) { state.rain = r; applyRain(); }
 export function setThunder(on) { state.thunder = !!on; }
+export function setProfile(p = {}) { profile = { ...DEF_PROFILE, ...p }; applyRain(); }
 
 // Distant thunder: a slow swell of low noise with a long tail. `delay` seconds after the flash.
 export function thunder(delay = 1.2, strength = 0.7) {
@@ -242,6 +294,6 @@ export function stop() {
     clearInterval(dropTimer);
     clearInterval(tickTimer);
     if (ctx) { ctx.close(); }
-    ctx = master = room = analyser = rainBus = null;
+    ctx = master = room = analyser = rainBus = lpNode = washBPNode = fireBus = null;
     started = false;
 }

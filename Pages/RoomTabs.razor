@@ -1,0 +1,29 @@
+<nav class="rooms @(Big ? "big" : "")" role="tablist" aria-label="Rooms">
+    @if (Arrows)
+    {
+        <button class="arrow" aria-label="Previous room" @onclick="() => OnStep.InvokeAsync(-1)">‹</button>
+    }
+    @for (var i = 0; i < Scenes.Length; i++)
+    {
+        var s = Scenes[i];
+        var n = i + 1;
+        var on = s.Id == Current;
+        <button class="room @(on ? "on" : "")" role="tab" aria-selected="@on" title="@s.Name (@n)" @onclick="() => OnPick.InvokeAsync(s.Id)">
+            <span class="num">@n</span>
+            <span class="nm">@s.Name</span>
+        </button>
+    }
+    @if (Arrows)
+    {
+        <button class="arrow" aria-label="Next room" @onclick="() => OnStep.InvokeAsync(1)">›</button>
+    }
+</nav>
+
+@code {
+    [Parameter] public Home.SceneInfo[] Scenes { get; set; } = Array.Empty<Home.SceneInfo>();
+    [Parameter] public string Current { get; set; } = "";
+    [Parameter] public EventCallback<string> OnPick { get; set; }
+    [Parameter] public EventCallback<int> OnStep { get; set; }
+    [Parameter] public bool Big { get; set; }
+    [Parameter] public bool Arrows { get; set; }
+}

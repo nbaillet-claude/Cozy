@@ -1,6 +1,6 @@
-# Cozy Rain
+# Rainy Day
 
-A small Blazor WebAssembly site: a person sits in an armchair with a hot drink in a warm, lamp-lit room while it rains outside. three.js draws the scene and the Web Audio API makes the rain sounds. There are no image or audio files, because everything is generated in code.
+Five cozy little rooms on a rainy day, built as a Blazor WebAssembly site. three.js draws each room and the Web Audio API makes the rain, thunder and fire sounds. There are no image or audio files: every texture, shape and sound is generated in code.
 
 ## Run it
 
@@ -11,30 +11,45 @@ dotnet run
 # open http://localhost:5280
 ```
 
-Click **Enter the cozy** (browsers only allow sound after a click), then use the ☰ button for the controls.
+Pick a room, click **come in** (browsers only allow sound after a click), then change rooms any time:
 
-## What's in it
+- the tabs at the top, or the ‹ › arrows
+- the **←** / **→** keys, or **1**–**5**
+- a link: `?scene=cabin` (ids below)
 
-- **Room:** wood floor and panelling, olive sofa, rust armchair, bookshelf, rug, curtains, plants, string lights.
-- **Light:** a floor lamp, table lamp, candle and string lights over a very dim ambient light. A **Lamp warmth** slider changes how deep the amber gets.
-- **Person:** a low-poly figure in a knit jumper under a blanket. They breathe, look out of the window and sip from a steaming mug now and then.
-- **Window:** a blurred, rainy city at dusk, rain streaks falling outside, and beads and running drops on the glass.
-- **Sound:** synthesised rain (a soft wash, a bright hiss, individual drops and a low rumble that grows with the rain), a very faint clock, and occasional distant thunder with a matching lightning flash.
-- **Controls:** sound on/off, volume, rain intensity, lamp warmth and a thunder toggle. The framing adapts to phone screens.
+## The rooms
+
+| # | id | Room | What's going on |
+| - | -- | ---- | --------------- |
+| 1 | `living-room` | Living room | An armchair, a steaming mug, floor lamp, bookshelf, a cat asleep on the sofa. Rainy city outside. |
+| 2 | `window-seat` | Window seat | A teal reading nook at dusk. Someone curled up with a book and blanket, a grey cat on the cushions, a wet street outside. |
+| 3 | `attic-bedroom` | Attic bedroom | Sloped roof, a skylight over the bed with rain drumming on it, a round window, someone reading in bed. The rain sounds louder here. |
+| 4 | `kitchen` | Kitchen | Sage cabinets, a pendant lamp over the table, someone stirring a pot, a kettle, a cat on a chair, a rainy garden. |
+| 5 | `cabin` | Cabin | Log walls, a crackling stone fireplace, someone in a plaid blanket on a sheepskin rug, a cat by the hearth, pine forest in the rain. |
+
+Every room has its own light, view, people and sound. Each person breathes, glances out at the rain and sips or turns a page now and then.
+
+## Controls ("notes")
+
+Sound on/off, volume, rain amount, lamp glow and a thunder toggle. Thunder comes with a lightning flash and a rumble that arrives a moment later. On phones the notes start closed and the camera pulls back to fit the screen.
+
+## Look and feel of the UI
+
+Hand-drawn paper: wobbly ink borders, taped notes, marker-pen highlights, hard offset shadows, no glow or blur. Text is set in **Patrick Hand** (easy to read) with **Caveat Brush** for headings. Both fonts are bundled in `wwwroot/fonts` under the SIL Open Font License.
 
 ## Layout
 
 | Path | Purpose |
 | --- | --- |
-| `Pages/Home.razor` | Page, intro screen and controls (C#, calls into JS) |
-| `wwwroot/js/cozyScene.js` | three.js scene, lighting, rain, lightning |
-| `wwwroot/js/cozyAudio.js` | Web Audio rain and thunder synth |
-| `wwwroot/lib/three/` | Vendored three.js r160 (MIT) plus the few addons used |
-| `wwwroot/css/app.css` | Styling and palette |
+| `Pages/Home.razor`, `Pages/RoomTabs.razor` | Page, intro, room tabs and notes (C#, calls into JS) |
+| `wwwroot/js/cozyScene.js` | Engine: renderer, lighting, rain, lightning, switching rooms |
+| `wwwroot/js/kit.js` | Shared pieces: textures, outside views, people, cats, steam, rainy glass |
+| `wwwroot/js/scenes/*.js` | One file per room |
+| `wwwroot/js/cozyAudio.js` | Web Audio synth: rain, thunder, fire, clock, per-room sound profiles |
+| `wwwroot/lib/three/` | Vendored three.js r160 (MIT) and the few addons used |
+| `wwwroot/css/app.css` | Styling |
 
-## Colour palette
-
-Taken from cozy-rainy-day reference photos: shadow brown `#1B0E02`, espresso `#2E1705`, wood `#754E1A`, honey gold `#A57B3F`, lamp glow `#DCB775`, amber `#E0A04A`, rust `#B5603C`, olive `#6B6A3A`, storm teal-grey `#2C3238`.
+To add a room, copy one of the files in `wwwroot/js/scenes/`, give it a new `id`, build it into `ctx.world`, return its camera and light settings, and add it to the list in `cozyScene.js`.
 
 ## Publish
 
@@ -42,4 +57,4 @@ Taken from cozy-rainy-day reference photos: shadow brown `#1B0E02`, espresso `#2
 dotnet publish -c Release -o out
 ```
 
-`out/wwwroot` is a static site. Serve it from any static host. If it is not at the site root, change `<base href="/">` in `wwwroot/index.html`.
+`out/wwwroot` is a static site you can serve from any static host. If it is not at the site root, change `<base href="/">` in `wwwroot/index.html`.

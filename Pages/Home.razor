@@ -2,60 +2,82 @@
 @implements IAsyncDisposable
 @inject IJSRuntime JS
 
-<PageTitle>Cozy Rain</PageTitle>
+<PageTitle>Rainy Day</PageTitle>
 
-<canvas @ref="_canvas" class="scene" aria-label="A person sitting in an armchair in a cozy room while it rains outside"></canvas>
+<canvas @ref="_canvas" class="scene" aria-label="A cozy room with rain falling outside the window"></canvas>
 
 @if (_webGlFailed)
 {
     <div class="overlay">
-        <div class="card">
-            <h1>Cozy Rain</h1>
-            <p>This browser couldn't start WebGL, so the room can't be drawn. Try a recent Chrome, Edge, Firefox or Safari.</p>
+        <div class="paper card">
+            <h1>Rainy Day</h1>
+            <p>Your browser couldn't start WebGL, so the room can't be drawn. A recent Chrome, Edge, Firefox or Safari should do it.</p>
         </div>
     </div>
 }
 else if (!_entered)
 {
     <div class="overlay">
-        <div class="card">
-            <h1>Cozy Rain</h1>
-            <p class="tagline">Warm lamps, a hot drink, and rain on the window.</p>
-            <button class="enter" disabled="@(!_sceneReady)" @onclick="EnterAsync">
-                @(_sceneReady ? "Enter the cozy" : "Warming up the room…")
+        <div class="paper card intro">
+            <span class="tape tl" aria-hidden="true"></span>
+            <span class="tape tr" aria-hidden="true"></span>
+
+            <p class="kicker">a little room for rainy days</p>
+            <h1>Rainy Day</h1>
+            <svg class="squiggle" viewBox="0 0 300 18" aria-hidden="true" preserveAspectRatio="none">
+                <path d="M3 11 C 38 2, 66 18, 106 9 S 186 3, 226 11 S 280 14, 297 6" />
+            </svg>
+            <p class="tagline">pull up a chair, the kettle's on.</p>
+
+            <p class="label">pick a room</p>
+            <RoomTabs Scenes="_scenes" Current="@_sceneId" OnPick="SelectAsync" Big="true" />
+            <p class="blurb">@CurrentBlurb</p>
+
+            <button class="btn enter" disabled="@(!_sceneReady)" @onclick="EnterAsync">
+                @(_sceneReady ? "come in" : "warming up…")
             </button>
-            <p class="hint">Sound on. Best with headphones.</p>
+            <p class="hint">sound on · headphones help · arrow keys change rooms</p>
         </div>
     </div>
 }
 else
 {
-    <button class="panel-toggle" aria-label="Toggle controls" aria-expanded="@_panelOpen" @onclick="() => _panelOpen = !_panelOpen">
-        @(_panelOpen ? "×" : "☰")
+    <header class="topbar">
+        <RoomTabs Scenes="_scenes" Current="@_sceneId" OnPick="SelectAsync" OnStep="StepAsync" Arrows="true" />
+    </header>
+
+    <button class="notes-tab" aria-expanded="@_panelOpen" @onclick="() => _panelOpen = !_panelOpen">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l1-5L16 4l4 4L9 19z M14 6l4 4" /></svg>
+        <span>@(_panelOpen ? "close" : "notes")</span>
     </button>
 
     @if (_panelOpen)
     {
-        <section class="panel" aria-label="Controls">
-            <div class="row">
-                <button class="chip @(_soundOn ? "on" : "")" aria-pressed="@_soundOn" @onclick="ToggleSoundAsync">
-                    @(_soundOn ? "🔊 Sound on" : "🔇 Sound off")
+        <section class="paper notes" aria-label="Controls">
+            <span class="tape tl" aria-hidden="true"></span>
+            <h2>notes</h2>
+
+            <div class="checks">
+                <button class="check @(_soundOn ? "on" : "")" role="switch" aria-checked="@_soundOn" @onclick="ToggleSoundAsync">
+                    <span class="box"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 11 L8 16 L17 4" /></svg></span>
+                    <span>sound</span>
                 </button>
-                <button class="chip @(_thunder ? "on" : "")" aria-pressed="@_thunder" @onclick="ToggleThunderAsync">
-                    ⚡ Thunder
+                <button class="check @(_thunder ? "on" : "")" role="switch" aria-checked="@_thunder" @onclick="ToggleThunderAsync">
+                    <span class="box"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 11 L8 16 L17 4" /></svg></span>
+                    <span>thunder</span>
                 </button>
             </div>
 
-            <label>
-                <span>Volume <em>@_volume%</em></span>
+            <label class="slider">
+                <span class="name">volume <em>@_volume</em></span>
                 <input type="range" min="0" max="100" value="@_volume" @oninput="OnVolumeAsync" />
             </label>
-            <label>
-                <span>Rain <em>@_rain%</em></span>
+            <label class="slider">
+                <span class="name">rain <em>@_rain</em></span>
                 <input type="range" min="0" max="100" value="@_rain" @oninput="OnRainAsync" />
             </label>
-            <label>
-                <span>Lamp warmth <em>@_warmth%</em></span>
+            <label class="slider">
+                <span class="name">lamp glow <em>@_warmth</em></span>
                 <input type="range" min="0" max="100" value="@_warmth" @oninput="OnWarmthAsync" />
             </label>
         </section>
@@ -63,10 +85,20 @@ else
 }
 
 @code {
+    public class SceneInfo
+    {
+        public string Id { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string Blurb { get; set; } = "";
+    }
+
     private ElementReference _canvas;
     private IJSObjectReference? _scene;
     private IJSObjectReference? _audio;
+    private DotNetObjectReference<Home>? _self;
 
+    private SceneInfo[] _scenes = Array.Empty<SceneInfo>();
+    private string _sceneId = "";
     private bool _sceneReady;
     private bool _webGlFailed;
     private bool _entered;
@@ -77,10 +109,13 @@ else
     private int _rain = 60;
     private int _warmth = 65;
 
+    private string CurrentBlurb => _scenes.FirstOrDefault(s => s.Id == _sceneId)?.Blurb ?? "";
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender) return;
 
+        _self = DotNetObjectReference.Create(this);
         _scene = await JS.InvokeAsync<IJSObjectReference>("import", "./js/cozyScene.js");
         _audio = await JS.InvokeAsync<IJSObjectReference>("import", "./js/cozyAudio.js");
 
@@ -88,12 +123,15 @@ else
         {
             rain = _rain / 100.0,
             warmth = _warmth / 100.0,
-            thunder = _thunder
+            thunder = _thunder,
+            dotnet = _self
         });
 
         if (ok)
         {
-            // Start with the controls tucked away on phones so the room gets the whole screen.
+            _scenes = await _scene.InvokeAsync<SceneInfo[]>("getScenes");
+            _sceneId = await _scene.InvokeAsync<string>("currentScene");
+            // Start with the notes tucked away on phones so the room gets the whole screen.
             _panelOpen = !await _scene.InvokeAsync<bool>("isNarrow");
             _sceneReady = true;
         }
@@ -103,6 +141,29 @@ else
         }
 
         StateHasChanged();
+    }
+
+    // Called from JS when the keyboard changes the room.
+    [JSInvokable]
+    public void OnSceneChanged(string id)
+    {
+        _sceneId = id;
+        StateHasChanged();
+    }
+
+    private async Task SelectAsync(string id)
+    {
+        if (_scene is null || id == _sceneId) return;
+        _sceneId = id;
+        await _scene.InvokeAsync<SceneInfo>("setScene", id);
+    }
+
+    private async Task StepAsync(int delta)
+    {
+        if (_scenes.Length == 0) return;
+        var i = Array.FindIndex(_scenes, s => s.Id == _sceneId);
+        var next = _scenes[(i + delta + _scenes.Length) % _scenes.Length];
+        await SelectAsync(next.Id);
     }
 
     private async Task EnterAsync()
@@ -169,5 +230,6 @@ else
         {
             // Page is closing; nothing to clean up.
         }
+        _self?.Dispose();
     }
 }
