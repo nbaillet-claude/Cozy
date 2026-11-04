@@ -764,16 +764,33 @@ const RAIN_GLASS_FRAG = /* glsl */`
         gClear = max(gClear, inside); // a drop is clear water, even on misty glass
     }
 
+    // Real drops are never round. This tilts and stretches the drop, wobbles its edge, and can pinch the top into a
+    // teardrop (the tip points up, toward where it came from). d is the offset from the drop's centre in nominal radii;
+    // k holds three random numbers per drop. The result has length 1 on the drop's edge.
+    vec2 shapeDrop(vec2 d, vec3 k, float tear) {
+        float a = (k.x - 0.5) * 0.7;
+        float c = cos(a), s = sin(a);
+        d = vec2(c * d.x + s * d.y, -s * d.x + c * d.y);
+        float el = mix(0.75, 1.55, k.y);                    // squat or tall, roughly keeping the area
+        d.y /= el; d.x *= sqrt(el);
+        d.x *= 1.0 + 1.5 * tear * smoothstep(-0.2, 1.0, d.y);
+        float th = atan(d.y, d.x + 1e-5);
+        float w = 1.0 + 0.06 * sin(2.0 * th + k.z * 6.283) + 0.03 * sin(3.0 * th + k.x * 12.0);
+        return d * w;
+    }
+
     void addBeads(vec2 p, float cell, float dens, float seed, float rmin, float rmax) {
         vec2 g = p / cell, id = floor(g), f = fract(g) - 0.5;
         float h = rnd2(id + seed);
         if (h > dens) return;
-        vec2 o = (vec2(rnd2(id + seed + 4.1), rnd2(id + seed + 9.7)) - 0.5) * 0.3;
-        float r = mix(rmin, rmax, rnd2(id + seed + 2.3));
+        vec2 o = (vec2(rnd2(id + seed + 4.1), rnd2(id + seed + 9.7)) - 0.5) * 0.18;
+        float r = min(mix(rmin, rmax, pow(rnd2(id + seed + 2.3), 1.7)), 0.27);
+        float tear = smoothstep(0.35, 1.0, rnd2(id + seed + 3.9)) * smoothstep(0.1, 0.26, r);  // bigger drops sag into teardrops
+        vec3 k = vec3(rnd2(id + seed + 1.1), rnd2(id + seed + 5.7), rnd2(id + seed + 8.3));
         float life = fract(uTime * (0.012 + 0.02 * h) + rnd2(id + seed + 6.1));
         r *= smoothstep(0.0, 0.1, life) * (1.0 - smoothstep(0.75, 1.0, life));
         if (r < 0.02) return;
-        vec2 d = (f - o) / r;
+        vec2 d = shapeDrop((f - o) / r, k, tear);
         float dist = length(d);
         float inside = 1.0 - smoothstep(0.8, 0.98, dist);
         if (inside > 0.0) lens(d, dist, inside);
@@ -794,15 +811,27 @@ const RAIN_GLASS_FRAG = /* glsl */`
             float yh = H * 0.5 + 0.15 - cyc * period;               // head height, from above the top to below the bottom
             float ph = sd * 5.0;
             float xBase = (id + 0.5 + (rnd(sd + 5.0) - 0.5) * 0.35) * colW;
-            float rx = rx0 * (0.8 + 0.5 * rnd(sd + 7.0));
+            float rx = rx0 * (0.65 + 0.95 * rnd(sd + 7.0) * rnd(sd + 7.5) + 0.2);
             float ry = rx * 1.55;
+            vec3 shp = vec3(rnd(sd + 8.1), rnd(sd + 8.7), rnd(sd + 9.3));
+            float tear = 0.45 + 0.55 * rnd(sd + 9.9);       // running drops are usually pointed at the top
 
             // the drop itself, wandering a little as it falls
             float headX = xBase + sin(yh * 31.0 + ph) * 0.0035;
-            vec2 d = vec2((p.x - headX) / rx, (p.y - yh) / ry);
+            vec2 d = shapeDrop(vec2((p.x - headX) / rx, (p.y - yh) / ry), shp, tear);
             float dist = length(d);
             float head = (1.0 - smoothstep(0.82, 1.0, dist)) * life;
             if (head > 0.0) lens(d, dist, head);
+
+            // some carry a smaller drop that has stuck on beside or just behind them
+            if (rnd(sd + 11.0) < 0.4) {
+                float sr = rx * (0.35 + 0.3 * rnd(sd + 12.0));
+                vec2 so = vec2((rnd(sd + 13.0) - 0.5) * rx * 2.6, ry * mix(-1.7, 2.4, rnd(sd + 14.0)));
+                vec2 sd2 = shapeDrop((p - vec2(headX, yh) - so) / sr, vec3(rnd(sd + 15.0), rnd(sd + 16.0), rnd(sd + 17.0)), 0.3);
+                float sdist = length(sd2);
+                float sins = (1.0 - smoothstep(0.82, 1.0, sdist)) * life;
+                if (sins > 0.0) lens(sd2, sdist, sins);
+            }
 
             // the clear trail it leaves behind
             float up = p.y - yh;
@@ -810,7 +839,7 @@ const RAIN_GLASS_FRAG = /* glsl */`
             if (up > 0.0 && up < tl) {
                 float along = up / tl;
                 float dx = p.x - (xBase + sin(p.y * 31.0 + ph) * 0.0035);
-                float w = rx * 0.65 * (1.0 - 0.55 * along);
+                float w = rx * 0.65 * (1.0 - 0.55 * along) * (0.8 + 0.4 * sin(p.y * 60.0 + ph * 2.0) * sin(p.y * 23.0 + ph));
                 float tm = (1.0 - smoothstep(w * 0.5, w, abs(dx))) * (1.0 - smoothstep(0.6, 1.0, along)) * life;
                 float e = abs(dx) / w;
                 float ring = smoothstep(0.5, 0.9, e) * (1.0 - smoothstep(0.9, 1.25, e)) * (1.0 - smoothstep(0.6, 1.0, along)) * life;
