@@ -53,8 +53,23 @@ export default {
             style: 'city', pos: [0, 4.3, -15], size: [52, 15],
             pal: { top: '#2a343d', mid: '#566772', hor: '#8fa3ad', b1: '#2c363d', b2: '#3a2318', b3: '#1f120b', winW: 13, winH: 15, blur: 2.2 },
         });
-        const glass = kit.addRainGlass(ctx, { w: WIN.x1 - WIN.x0, h: WIN.y1 - WIN.y0, backdrop: outside });
+        const glass = kit.addRainGlass(ctx, { w: WIN.x1 - WIN.x0, h: WIN.y1 - WIN.y0, backdrop: outside, reflect: { pos: [0, 1.7, -2.4], strength: 3.5 } });
         glass.position.set(0, (WIN.y0 + WIN.y1) / 2, ROOM.z0 + 0.05);
+
+        // The open front of the room, as a wall that only the window glass can see: it faces into the room, so the
+        // camera (outside) looks at its back and it is culled, but the reflection in the glass finds a wall with
+        // pictures and a wall light on it instead of empty darkness.
+        const front = new THREE.Group();
+        front.position.set(0, 0, ROOM.z1 + 0.05);
+        front.rotation.y = Math.PI;
+        front.add(mesh(new THREE.PlaneGeometry(8, ROOM.h), std(C.plaster, 0.95), { y: ROOM.h / 2, cast: false }));
+        for (const [x, y, w, h, c1, c2] of [[-1.6, 1.8, 0.9, 0.65, '#e8b9a0', '#b5603c'], [0.4, 1.7, 0.6, 0.8, '#c9d9d4', '#5a8a88'], [2.6, 1.9, 0.8, 0.6, '#f0d9a8', '#c9963c']]) {
+            front.add(mesh(new THREE.PlaneGeometry(w + 0.08, h + 0.08), std(0x2a1708, 0.6), { x, y, z: 0.005, cast: false }));
+            front.add(mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshStandardMaterial({ map: kit.paintingTexture(c1, c2), roughness: 0.9 }), { x, y, z: 0.01, cast: false }));
+        }
+        // a flat wall light: a warm glowing panel that shows up as a lamp in the glass
+        front.add(mesh(new THREE.CircleGeometry(0.16, 24), new THREE.MeshBasicMaterial({ color: new THREE.Color(4.5, 2.9, 1.2) }), { x: 1.4, y: 2.4, z: 0.02, cast: false }));
+        world.add(front);
 
         // ----- rug, sofa, art -----
         world.add(mesh(new THREE.PlaneGeometry(4.6, 3.4), std(0xffffff, 1, 0, { map: kit.rugTexture() }), { x: 0.2, y: 0.012, z: 0.5, rx: -Math.PI / 2, cast: false }));

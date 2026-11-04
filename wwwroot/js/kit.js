@@ -732,9 +732,13 @@ export function curtain(ctx, { x, y, z, w = 0.7, h = 2.6, color = 0x2f3a28, opac
 const RAIN_GLASS_VERT = /* glsl */`
     varying vec2 vUv;
     varying vec3 vWorld;
+    varying vec3 vNormalW, vRightW, vUpW;
     void main() {
         vUv = uv;
         vWorld = (modelMatrix * vec4(position, 1.0)).xyz;
+        vNormalW = normalize((modelMatrix * vec4(0.0, 0.0, 1.0, 0.0)).xyz);   // points into the room
+        vRightW = normalize((modelMatrix * vec4(1.0, 0.0, 0.0, 0.0)).xyz);
+        vUpW = normalize((modelMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
         gl_Position = projectionMatrix * viewMatrix * vec4(vWorld, 1.0);
     }`;
 
@@ -744,12 +748,16 @@ const RAIN_GLASS_FRAG = /* glsl */`
     uniform vec2 uSize, uBdSize, uTexel;
     uniform mat4 uBdInv;
     uniform vec3 uGlint;
+    uniform samplerCube uEnv;     // snapshot of the room, for reflections
+    uniform float uReflect;
     varying vec2 vUv;
     varying vec3 vWorld;
+    varying vec3 vNormalW, vRightW, vUpW;
 
     // what every drop adds up to
     vec2 gN; float gMask, gClear, gSpec, gRim;
     float gSz = 0.01, gGain = 1.0;   // current drop: radius in metres, and how strongly it shows
+    vec2 gNrm; float gW = 0.0;       // average slope of the drops here (for reflecting the room in them)
     float gPxM = 0.003, gSpecN = 0.0, gDark = 0.0; // one screen pixel in metres; tiny-drop highlight (neutral, not warm); tiny-drop darkening
 
     float rnd2(vec2 p);
@@ -776,6 +784,8 @@ const RAIN_GLASS_FRAG = /* glsl */`
         gMask = max(gMask, inside * (0.4 + 0.6 * gGain) * mix(0.15, 1.0, sc));
         gClear = max(gClear, inside * mix(0.3, 1.0, sc));                      // tiny drops barely clear the mist around them
         gDark = max(gDark, inside * (1.0 - sc) * gGain * 0.6);                 // they read as small dark smudges
+        float wN = inside * mix(0.3, 1.0, sc);
+        gNrm += n3.xy * wN; gW += wN;
     }
 
     // Real drops are never round. This tilts and stretches the drop, wobbles its edge, and can pinch the top into a
@@ -881,7 +891,7 @@ const RAIN_GLASS_FRAG = /* glsl */`
 
     void main() {
         vec2 p = (vUv - 0.5) * uSize / uDrop;   // pane position in drop-size units
-        gN = vec2(0.0); gMask = 0.0; gClear = 0.0; gSpec = 0.0; gSpecN = 0.0; gDark = 0.0; gRim = 0.0;
+        gN = vec2(0.0); gMask = 0.0; gClear = 0.0; gSpec = 0.0; gSpecN = 0.0; gDark = 0.0; gRim = 0.0; gNrm = vec2(0.0); gW = 0.0;
         gPxM = max(fwidth(p.x), fwidth(p.y)) * uDrop;
         float R = uRain;
         if (R > 0.01) {
@@ -913,12 +923,24 @@ const RAIN_GLASS_FRAG = /* glsl */`
         col *= 1.0 + 0.25 * gMask;      // a drop gathers a little light
         col *= 1.0 - 0.7 * gRim;        // dark edge ring
         col *= 1.0 - 0.35 * gDark;      // tiny drops: dim smudges
-        col += uGlint * gSpec * 0.5 + vec3(0.85, 0.92, 1.0) * gSpecN * 0.3;    // highlights
+        col += uGlint * gSpec * 0.3 + vec3(0.85, 0.92, 1.0) * gSpecN * 0.3;    // highlights
+
+        // the room reflected in the glass (strongest at glancing angles), and in each drop's curved surface
+        if (uReflect > 0.0) {
+            vec3 nw = normalize(vNormalW);
+            float F = 0.04 + 0.96 * pow(1.0 - clamp(dot(-dir, nw), 0.0, 1.0), 4.0);
+            col += textureLod(uEnv, reflect(dir, nw), mix(1.7, 0.6, clamp(gClear, 0.0, 1.0))).rgb * F * uReflect;
+            if (gW > 0.001) {
+                vec2 dn = gNrm / gW;
+                vec3 nd = normalize(nw + (vRightW * dn.x + vUpW * dn.y) * 0.9);
+                col += textureLod(uEnv, reflect(dir, nd), 0.8).rgb * gMask * 0.1 * uReflect;
+            }
+        }
         gl_FragColor = vec4(col, 1.0);
     }`;
 
 // `backdrop` is the picture of the outside from ctx.backdrop(). It gets hidden: this glass draws it itself.
-export function addRainGlass(ctx, { w, h, backdrop, refr = 4.5, haze = 2.7, drop = 2.0, glint = [1.0, 0.82, 0.55] }) {
+export function addRainGlass(ctx, { w, h, backdrop, refr = 4.5, haze = 2.7, drop = 2.0, glint = [1.0, 0.82, 0.55], reflect = null }) {
     backdrop.updateMatrixWorld(true);
     const map = backdrop.material.map;
     const u = {
@@ -929,6 +951,7 @@ export function addRainGlass(ctx, { w, h, backdrop, refr = 4.5, haze = 2.7, drop
         uTexel: { value: new THREE.Vector2(1 / map.image.width, 1 / map.image.height) },
         uRefr: { value: refr }, uHaze: { value: haze }, uDrop: { value: drop },
         uGlint: { value: new THREE.Color(glint[0], glint[1], glint[2]) }, uSeed: { value: Math.random() * 40 },
+        uEnv: { value: null }, uReflect: { value: 0 },
     };
     const mat = new THREE.ShaderMaterial({ uniforms: u, vertexShader: RAIN_GLASS_VERT, fragmentShader: RAIN_GLASS_FRAG, transparent: true, depthWrite: false });
     const glass = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
@@ -936,6 +959,16 @@ export function addRainGlass(ctx, { w, h, backdrop, refr = 4.5, haze = 2.7, drop
     ctx.world.add(glass);
     backdrop.visible = false;
     if (backdrop.userData.flash) backdrop.userData.flash.apply = (v) => { u.uBright.value = v; };
-    ctx.anim((t) => { u.uTime.value = t; u.uRain.value = ctx.state.rain; });
+    // Reflection of the room: snapshot it once from just inside the window, and retake it when the lamps change.
+    const probe = reflect ? ctx.envProbe(reflect.pos, reflect.size ?? 256) : null;
+    if (probe) { u.uEnv.value = probe.texture; u.uReflect.value = reflect.strength ?? 3.0; }
+    let taken = false, lastWarm = ctx.state.warmth, changedAt = -1;
+    ctx.anim((t) => {
+        u.uTime.value = t; u.uRain.value = ctx.state.rain;
+        if (!probe) return;
+        if (!taken) { glass.updateMatrixWorld(true); probe.update([glass]); taken = true; lastWarm = ctx.state.warmth; return; }
+        if (Math.abs(ctx.state.warmth - lastWarm) > 0.02) { lastWarm = ctx.state.warmth; changedAt = t; }
+        if (changedAt >= 0 && t - changedAt > 0.5) { probe.update([glass]); changedAt = -1; }
+    });
     return glass;
 }

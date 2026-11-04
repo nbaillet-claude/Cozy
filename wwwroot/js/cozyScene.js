@@ -78,6 +78,33 @@ function makeCtx() {
         THREE, kit, world, state,
         anim: (fn) => animations.push(fn),
         addLamp, glow, backdrop,
+        envProbe,
+    };
+}
+
+// A snapshot of the room (a cube map) taken from `pos`, for things that reflect it. update() retakes it;
+// anything in `hide` (the reflecting glass itself) and the falling rain are left out of the picture.
+function envProbe(pos, size = 256) {
+    const rt = new THREE.WebGLCubeRenderTarget(size, { type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
+    const cam = new THREE.CubeCamera(0.05, 60, rt);
+    cam.position.set(...pos);
+    world.add(cam);
+    return {
+        texture: rt.texture,
+        update(hide = []) {
+            const was = hide.map((o) => o.visible);
+            hide.forEach((o) => { o.visible = false; });
+            const rainWas = rain ? rain.visible : true;
+            if (rain) rain.visible = false;
+            const auto = renderer.shadowMap.autoUpdate;
+            renderer.shadowMap.autoUpdate = false;   // shadows are the same from every face: render them once
+            renderer.shadowMap.needsUpdate = true;
+            cam.updateMatrixWorld(true);
+            cam.update(renderer, scene);
+            renderer.shadowMap.autoUpdate = auto;
+            hide.forEach((o, i) => { o.visible = was[i]; });
+            if (rain) rain.visible = rainWas;
+        },
     };
 }
 
