@@ -775,7 +775,7 @@ const RAIN_GLASS_FRAG = /* glsl */`
         vec3 n3 = normalize(vec3(nd, z + 0.25));
         vec3 h1 = normalize(vec3(-0.45, 0.55, 0.7) + vec3(0.0, 0.0, 1.0));   // lamp, upper left
         vec3 h2 = normalize(vec3(0.5, -0.4, 0.75) + vec3(0.0, 0.0, 1.0));    // soft bounce, lower right
-        float sc = smoothstep(0.004, 0.022, gSz);                              // tiny drops are subtle smudges, big ones are jewels
+        float sc = smoothstep(0.0006, 0.003, gSz);   // radius in metres: under ~0.6 mm is a smudge, over ~3 mm a proper drop                              // tiny drops are subtle smudges, big ones are jewels
         float spec = pow(max(dot(n3, h1), 0.0), 55.0) + 0.35 * pow(max(dot(n3, h2), 0.0), 28.0);
         gSpec += spec * inside * sc * gGain;                                   // warm lamp glints on bigger drops
         gSpecN += spec * inside * (1.0 - sc) * gGain * 0.35;                   // just a faint pale edge on tiny ones
@@ -830,7 +830,7 @@ const RAIN_GLASS_FRAG = /* glsl */`
             float cyc = fract(uTime / Tc + rnd(sd + 3.0));
             float u0 = clamp(cyc / 0.5, 0.0, 1.0);                      // moves for half the cycle, then rests
             float uu = u0 + 0.03 * sin(u0 * 37.7 + sd * 3.0) * u0 * (1.0 - u0) * 4.0;   // stick-slip
-            float Lj = mix(0.06, 0.55, pow(rnd(sd + 20.0), 1.5));       // how far this one runs
+            float Lj = mix(0.15, 1.4, pow(rnd(sd + 20.0), 1.5));       // how far this one runs
             float y0 = mix(-H * 0.5, H * 0.5 + 0.08, rnd(sd + 21.0));
             float life = smoothstep(0.0, 0.04, cyc) * (1.0 - smoothstep(0.88, 1.0, cyc));
             float yh = y0 - uu * Lj;
@@ -879,7 +879,7 @@ const RAIN_GLASS_FRAG = /* glsl */`
                 if (rnd2(rid) < 0.5) {
                     float cy = (yi + 0.15 + 0.7 * rnd2(rid + 1.7)) * 0.055;
                     float cx = xBase + sin(cy * 31.0 + ph) * 0.0035 + (rnd2(rid + 2.9) - 0.5) * 0.01;
-                    float rr = max((0.004 + 0.004 * rnd2(rid + 4.3)) * (1.0 - smoothstep(0.5, 1.0, along)) * life, 1e-4);
+                    float rr = max((0.002 + 0.002 * rnd2(rid + 4.3)) * (1.0 - smoothstep(0.5, 1.0, along)) * life, 1e-4);
                     vec2 dd = vec2(p.x - cx, p.y - cy) / rr;
                     float dd2 = length(dd);
                     float ins = 1.0 - smoothstep(0.8, 1.0, dd2);
@@ -895,14 +895,14 @@ const RAIN_GLASS_FRAG = /* glsl */`
         gPxM = max(fwidth(p.x), fwidth(p.y)) * uDrop;
         float R = uRain;
         if (R > 0.01) {
-            addBeads(p + 0.05, 0.010, 0.35 + 0.5 * R, uSeed + 3.0, 0.22, 0.42);       // dense texture of very tiny drops
+            addBeads(p + 0.05, 0.010, 0.45 + 0.5 * R, uSeed + 3.0, 0.22, 0.42);       // dense texture of very tiny drops
             addBeads(p + 0.02, 0.016, 0.25 + 0.4 * R, uSeed + 5.0, 0.2, 0.4);
-            addBeads(p, 0.022, 0.10 + 0.28 * R, uSeed, 0.16, 0.34);
-            addBeads(p + 0.13, 0.04, 0.08 + 0.25 * R, uSeed + 7.0, 0.14, 0.30);      // small drops
-            addBeads(p + 0.31, 0.09, 0.04 + 0.20 * R, uSeed + 11.0, 0.10, 0.26);     // fat drops
-            addRunners(p, 0.05, 0.25 + 0.5 * R, 0.6 + 0.9 * R, uSeed + 21.0, 0.0055);
-            addRunners(p + 0.2, 0.09, 0.3 + 0.55 * R, 0.55 + 0.8 * R, uSeed + 33.0, 0.0085);
-            addRunners(p + 0.45, 0.16, 0.14 + 0.4 * R, 0.5 + 0.7 * R, uSeed + 47.0, 0.012);
+            addBeads(p, 0.022, 0.30 + 0.45 * R, uSeed, 0.16, 0.34);
+            addBeads(p + 0.13, 0.04, 0.22 + 0.4 * R, uSeed + 7.0, 0.14, 0.30);      // small drops
+            addBeads(p + 0.31, 0.09, 0.06 + 0.20 * R, uSeed + 11.0, 0.10, 0.26);     // fat drops
+            addRunners(p, 0.10, 0.35 + 0.55 * R, 0.6 + 0.9 * R, uSeed + 21.0, 0.0055);
+            addRunners(p + 0.2, 0.18, 0.3 + 0.55 * R, 0.55 + 0.8 * R, uSeed + 33.0, 0.0085);
+            addRunners(p + 0.45, 0.32, 0.14 + 0.4 * R, 0.5 + 0.7 * R, uSeed + 47.0, 0.012);
         }
 
         // where this view ray lands on the picture of the outside, then bend it through the drops
@@ -913,7 +913,11 @@ const RAIN_GLASS_FRAG = /* glsl */`
         vec2 uv = hit / uBdSize + 0.5 + gN * uRefr / uBdSize;
 
         // misty film everywhere, wiped clear by drops and trails
-        float lod = (1.0 - clamp(gClear, 0.0, 1.0)) * uHaze * smoothstep(0.0, 0.5, R) * mix(0.8, 1.25, vnoise(p * 1.3 + 3.7)) * (1.1 - 0.3 * vUv.y);
+        // From far away single drops are smaller than a pixel and fade out, so show what they add up to: faint vertical
+        // runs wiped clear of mist, and a scatter of tiny glints where drops catch the light.
+        float far = smoothstep(0.0007, 0.003, gPxM) * smoothstep(0.0, 0.5, R);   // 0 up close, 1 from across the room
+        float runs = vnoise(vec2(p.x * 5.0, p.y * 0.5 + uTime * 0.02)) * vnoise(vec2(p.x * 17.0 + 3.0, p.y * 0.35));
+        float lod = (1.0 - clamp(gClear, 0.0, 1.0)) * uHaze * smoothstep(0.0, 0.5, R) * mix(1.0, 1.25 - 1.5 * runs, far) * mix(0.8, 1.25, vnoise(p * 1.3 + 3.7)) * (1.1 - 0.3 * vUv.y);
         vec2 o = uTexel * exp2(lod) * 0.75;
         vec3 col = 0.4 * textureLod(uMap, uv, lod).rgb
                  + 0.15 * (textureLod(uMap, uv + vec2(o.x, o.y), lod).rgb + textureLod(uMap, uv - vec2(o.x, o.y), lod).rgb
@@ -921,6 +925,8 @@ const RAIN_GLASS_FRAG = /* glsl */`
         col *= vec3(uBright, uBright * 1.02, uBright * 1.08);   // follows the lightning flash
 
         col *= 1.0 + 0.25 * gMask;      // a drop gathers a little light
+        float glint = step(0.985, rnd2(floor(gl_FragCoord.xy * 0.5) + floor(uTime * 0.7) * 0.37 + uSeed)) * far * R;
+        col += vec3(1.0, 0.82, 0.6) * glint * 0.07;
         col *= 1.0 - 0.7 * gRim;        // dark edge ring
         col *= 1.0 - 0.35 * gDark;      // tiny drops: dim smudges
         col += uGlint * gSpec * 0.3 + vec3(0.85, 0.92, 1.0) * gSpecN * 0.3;    // highlights
@@ -940,7 +946,7 @@ const RAIN_GLASS_FRAG = /* glsl */`
     }`;
 
 // `backdrop` is the picture of the outside from ctx.backdrop(). It gets hidden: this glass draws it itself.
-export function addRainGlass(ctx, { w, h, backdrop, refr = 4.5, haze = 2.7, drop = 2.0, glint = [1.0, 0.82, 0.55], reflect = null }) {
+export function addRainGlass(ctx, { w, h, backdrop, refr = 1.0, haze = 2.2, drop = 0.2, glint = [1.0, 0.82, 0.55], reflect = null }) {
     backdrop.updateMatrixWorld(true);
     const map = backdrop.material.map;
     const u = {

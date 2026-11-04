@@ -311,8 +311,8 @@ export default {
 
         return {
             camera: { pos: [0, 1.55, 6.4], look: [0.15, 1.25, -1], fov: 42 },
-            // "look out the window": glide up to the glass so the rain fills the screen
-            lookOut: { pos: [0, 1.7, -1.1], look: [0, 1.7, -3.0], fov: 50, parallax: [0.3, 0.12], lookParallax: 0.12, narrow: { dfov: 10, dy: 0 } },
+            // "look out the window": glide to about 45 cm from the glass, where real drops (a few mm) are big enough to see
+            lookOut: { pos: [0, 1.4, -2.45], look: [0, 1.4, -3.0], fov: 50, parallax: [0.03, 0.015], lookParallax: 0.015, narrow: { dfov: 8, dy: 0 } },
             dust: { x: [-3.5, 3.5], y: [0.3, 3], z: [-2.6, 3] },
             audio: {},
         };
