@@ -48,10 +48,10 @@ export default {
         world.add(box(WIN.x1 - WIN.x0, 0.05, 0.1, frame, { y: (WIN.y0 + WIN.y1) / 2 + 0.1, z: fz }));
 
         // rain on the glass: drops bend and blur the view of the city behind them
-        // a crisper, higher-contrast city so the drops have real edges to bend: bright overcast sky behind dark buildings
+        // a soft, glowing out-of-focus city (like a camera focused on the drops): bright overcast sky behind dark buildings
         const outside = ctx.backdrop({
             style: 'city', pos: [0, 4.3, -15], size: [52, 15],
-            pal: { top: '#2a343d', mid: '#566772', hor: '#8fa3ad', b1: '#2c363d', b2: '#3a2318', b3: '#1f120b', winW: 13, winH: 15, blur: 1.1 },
+            pal: { top: '#2a343d', mid: '#566772', hor: '#8fa3ad', b1: '#2c363d', b2: '#3a2318', b3: '#1f120b', winW: 13, winH: 15, blur: 2.2 },
         });
         const glass = kit.addRainGlass(ctx, { w: WIN.x1 - WIN.x0, h: WIN.y1 - WIN.y0, backdrop: outside });
         glass.position.set(0, (WIN.y0 + WIN.y1) / 2, ROOM.z0 + 0.05);

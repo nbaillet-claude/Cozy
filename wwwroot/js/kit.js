@@ -285,10 +285,12 @@ export function backdropTexture(style = 'city', pal = {}) {
                 x += bw + rnd(-6, 10);
             }
         }
+        g.shadowColor = 'rgba(255,175,95,0.9)'; g.shadowBlur = 14;
         for (const [wx, wy, a] of lit) {
             g.fillStyle = a > 0.8 ? 'rgba(255,205,125,0.95)' : `rgba(${P.lit},${0.35 + a * 0.4})`;
             g.fillRect(wx, wy, P.winW ?? 9, P.winH ?? 11);
         }
+        g.shadowBlur = 0;
     };
     const bokeh = (n, y0, y1, rmin, rmax, cols, alpha = 0.55) => {
         g.globalCompositeOperation = 'lighter';
@@ -747,21 +749,33 @@ const RAIN_GLASS_FRAG = /* glsl */`
 
     // what every drop adds up to
     vec2 gN; float gMask, gClear, gSpec, gRim;
+    float gSz = 0.01, gGain = 1.0;   // current drop: radius in metres, and how strongly it shows
+    float gPxM = 0.003, gSpecN = 0.0, gDark = 0.0; // one screen pixel in metres; tiny-drop highlight (neutral, not warm); tiny-drop darkening
 
+    float rnd2(vec2 p);
+    float vnoise(vec2 x) { vec2 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(rnd2(i), rnd2(i + vec2(1.0, 0.0)), f.x), mix(rnd2(i + vec2(0.0, 1.0)), rnd2(i + vec2(1.0, 1.0)), f.x), f.y); }
     float rnd(float n) { return fract(sin(n * 91.3458) * 47453.5453); }
     float rnd2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 
     // One water drop seen as a small lens. nd = offset from the drop centre in drop radii.
     void lens(vec2 nd, float dist, float inside) {
+        // A drop under about a pixel can only shimmer and crawl, so fade it out instead.
+        inside *= smoothstep(0.7, 2.0, gSz / gPxM);
+        if (inside <= 0.0) return;
         float z = sqrt(max(0.0, 1.0 - dist * dist));
         vec3 n3 = normalize(vec3(nd, z + 0.25));
-        vec3 h1 = normalize(vec3(-0.45, 0.55, 0.7) + vec3(0.0, 0.0, 1.0)); // lamp, upper left
-        vec3 h2 = normalize(vec3(0.5, -0.4, 0.75) + vec3(0.0, 0.0, 1.0));  // soft bounce, lower right
-        gSpec += (pow(max(dot(n3, h1), 0.0), 55.0) + 0.35 * pow(max(dot(n3, h2), 0.0), 28.0)) * inside;
-        gRim = max(gRim, smoothstep(0.5, 0.95, dist) * inside);
-        gN += -nd * inside;           // inverted, magnified look-up
-        gMask = max(gMask, inside);
-        gClear = max(gClear, inside); // a drop is clear water, even on misty glass
+        vec3 h1 = normalize(vec3(-0.45, 0.55, 0.7) + vec3(0.0, 0.0, 1.0));   // lamp, upper left
+        vec3 h2 = normalize(vec3(0.5, -0.4, 0.75) + vec3(0.0, 0.0, 1.0));    // soft bounce, lower right
+        float sc = smoothstep(0.004, 0.022, gSz);                              // tiny drops are subtle smudges, big ones are jewels
+        float spec = pow(max(dot(n3, h1), 0.0), 55.0) + 0.35 * pow(max(dot(n3, h2), 0.0), 28.0);
+        gSpec += spec * inside * sc * gGain;                                   // warm lamp glints on bigger drops
+        gSpecN += spec * inside * (1.0 - sc) * gGain * 0.35;                   // just a faint pale edge on tiny ones
+        gRim = max(gRim, smoothstep(0.5, 0.95, dist) * inside * mix(0.45, 1.0, sc) * (0.5 + 0.5 * gGain));
+        gN += -nd * inside * mix(0.15, 1.0, sc);                               // tiny drops barely bend the view
+        gMask = max(gMask, inside * (0.4 + 0.6 * gGain) * mix(0.15, 1.0, sc));
+        gClear = max(gClear, inside * mix(0.3, 1.0, sc));                      // tiny drops barely clear the mist around them
+        gDark = max(gDark, inside * (1.0 - sc) * gGain * 0.6);                 // they read as small dark smudges
     }
 
     // Real drops are never round. This tilts and stretches the drop, wobbles its edge, and can pinch the top into a
@@ -782,7 +796,7 @@ const RAIN_GLASS_FRAG = /* glsl */`
     void addBeads(vec2 p, float cell, float dens, float seed, float rmin, float rmax) {
         vec2 g = p / cell, id = floor(g), f = fract(g) - 0.5;
         float h = rnd2(id + seed);
-        if (h > dens) return;
+        if (h > dens * mix(0.7, 1.3, vnoise(p * 1.8 + seed))) return;
         vec2 o = (vec2(rnd2(id + seed + 4.1), rnd2(id + seed + 9.7)) - 0.5) * 0.18;
         float r = min(mix(rmin, rmax, pow(rnd2(id + seed + 2.3), 1.7)), 0.27);
         float tear = smoothstep(0.35, 1.0, rnd2(id + seed + 3.9)) * smoothstep(0.1, 0.26, r);  // bigger drops sag into teardrops
@@ -793,7 +807,7 @@ const RAIN_GLASS_FRAG = /* glsl */`
         vec2 d = shapeDrop((f - o) / r, k, tear);
         float dist = length(d);
         float inside = 1.0 - smoothstep(0.8, 0.98, dist);
-        if (inside > 0.0) lens(d, dist, inside);
+        if (inside > 0.0) { gSz = r * cell * uDrop; gGain = 0.35 + 0.65 * rnd2(id + seed + 12.7); lens(d, dist, inside); }
     }
 
     void addRunners(vec2 p, float colW, float dens, float speed, float seed, float rx0) {
@@ -801,17 +815,18 @@ const RAIN_GLASS_FRAG = /* glsl */`
         float H = uSize.y / uDrop;
         for (int k = 0; k < 2; k++) {
             float sd = id * 1.731 + float(k) * 37.17 + seed;
-            if (rnd(sd) > dens) continue;
-            float period = H + 0.5;
-            float v = speed * (0.45 + rnd(sd + 2.0)) * 0.045;
-            float tt = uTime * v / period + rnd(sd + 3.0);
-            float s = tt + 0.022 * sin(tt * 37.7 + sd * 3.0);       // stick-slip: always moves on, sometimes barely
-            float cyc = fract(s);
-            float life = smoothstep(0.0, 0.03, cyc) * (1.0 - smoothstep(0.93, 1.0, cyc));
-            float yh = H * 0.5 + 0.15 - cyc * period;               // head height, from above the top to below the bottom
+            if (rnd(sd) > dens * 0.85) continue;
+            float Tc = mix(35.0, 110.0, rnd(sd + 2.0)) / speed;        // seconds per cycle of this drop
+            float cyc = fract(uTime / Tc + rnd(sd + 3.0));
+            float u0 = clamp(cyc / 0.5, 0.0, 1.0);                      // moves for half the cycle, then rests
+            float uu = u0 + 0.03 * sin(u0 * 37.7 + sd * 3.0) * u0 * (1.0 - u0) * 4.0;   // stick-slip
+            float Lj = mix(0.06, 0.55, pow(rnd(sd + 20.0), 1.5));       // how far this one runs
+            float y0 = mix(-H * 0.5, H * 0.5 + 0.08, rnd(sd + 21.0));
+            float life = smoothstep(0.0, 0.04, cyc) * (1.0 - smoothstep(0.88, 1.0, cyc));
+            float yh = y0 - uu * Lj;
             float ph = sd * 5.0;
             float xBase = (id + 0.5 + (rnd(sd + 5.0) - 0.5) * 0.35) * colW;
-            float rx = rx0 * (0.65 + 0.95 * rnd(sd + 7.0) * rnd(sd + 7.5) + 0.2);
+            float rx = rx0 * (0.65 + 0.95 * rnd(sd + 7.0) * rnd(sd + 7.5) + 0.2) * mix(1.0, 0.8, uu);
             float ry = rx * 1.55;
             vec3 shp = vec3(rnd(sd + 8.1), rnd(sd + 8.7), rnd(sd + 9.3));
             float tear = 0.45 + 0.55 * rnd(sd + 9.9);       // running drops are usually pointed at the top
@@ -821,7 +836,7 @@ const RAIN_GLASS_FRAG = /* glsl */`
             vec2 d = shapeDrop(vec2((p.x - headX) / rx, (p.y - yh) / ry), shp, tear);
             float dist = length(d);
             float head = (1.0 - smoothstep(0.82, 1.0, dist)) * life;
-            if (head > 0.0) lens(d, dist, head);
+            if (head > 0.0) { gSz = rx * uDrop; gGain = 1.0; lens(d, dist, head); }
 
             // some carry a smaller drop that has stuck on beside or just behind them
             if (rnd(sd + 11.0) < 0.4) {
@@ -830,22 +845,22 @@ const RAIN_GLASS_FRAG = /* glsl */`
                 vec2 sd2 = shapeDrop((p - vec2(headX, yh) - so) / sr, vec3(rnd(sd + 15.0), rnd(sd + 16.0), rnd(sd + 17.0)), 0.3);
                 float sdist = length(sd2);
                 float sins = (1.0 - smoothstep(0.82, 1.0, sdist)) * life;
-                if (sins > 0.0) lens(sd2, sdist, sins);
+                if (sins > 0.0) { gSz = sr * uDrop; gGain = 0.9; lens(sd2, sdist, sins); }
             }
 
             // the clear trail it leaves behind
             float up = p.y - yh;
-            float tl = min(cyc * period, 1.2);
+            float tl = uu * Lj;
             if (up > 0.0 && up < tl) {
                 float along = up / tl;
                 float dx = p.x - (xBase + sin(p.y * 31.0 + ph) * 0.0035);
-                float w = rx * 0.65 * (1.0 - 0.55 * along) * (0.8 + 0.4 * sin(p.y * 60.0 + ph * 2.0) * sin(p.y * 23.0 + ph));
+                float w = rx * 0.95 * (1.0 - 0.55 * along) * (0.8 + 0.4 * sin(p.y * 60.0 + ph * 2.0) * sin(p.y * 23.0 + ph));
                 float tm = (1.0 - smoothstep(w * 0.5, w, abs(dx))) * (1.0 - smoothstep(0.6, 1.0, along)) * life;
                 float e = abs(dx) / w;
                 float ring = smoothstep(0.5, 0.9, e) * (1.0 - smoothstep(0.9, 1.25, e)) * (1.0 - smoothstep(0.6, 1.0, along)) * life;
-                gRim = max(gRim, ring * 0.4);   // a faint dark edge so the trail reads
-                gMask = max(gMask, tm * 0.5);
-                gClear = max(gClear, tm * 0.95);
+                gRim = max(gRim, ring * 0.2);   // a faint dark edge so the trail reads
+                gMask = max(gMask, tm * 0.35);
+                gClear = max(gClear, tm * 0.75);
                 gN += vec2(clamp(dx / w, -1.0, 1.0), 0.0) * -0.25 * tm;
 
                 // tiny droplets stranded along the way
@@ -858,7 +873,7 @@ const RAIN_GLASS_FRAG = /* glsl */`
                     vec2 dd = vec2(p.x - cx, p.y - cy) / rr;
                     float dd2 = length(dd);
                     float ins = 1.0 - smoothstep(0.8, 1.0, dd2);
-                    if (ins > 0.0) lens(dd, dd2, ins);
+                    if (ins > 0.0) { gSz = rr * uDrop; gGain = 0.7; lens(dd, dd2, ins); }
                 }
             }
         }
@@ -866,10 +881,13 @@ const RAIN_GLASS_FRAG = /* glsl */`
 
     void main() {
         vec2 p = (vUv - 0.5) * uSize / uDrop;   // pane position in drop-size units
-        gN = vec2(0.0); gMask = 0.0; gClear = 0.0; gSpec = 0.0; gRim = 0.0;
+        gN = vec2(0.0); gMask = 0.0; gClear = 0.0; gSpec = 0.0; gSpecN = 0.0; gDark = 0.0; gRim = 0.0;
+        gPxM = max(fwidth(p.x), fwidth(p.y)) * uDrop;
         float R = uRain;
         if (R > 0.01) {
-            addBeads(p, 0.022, 0.10 + 0.28 * R, uSeed, 0.16, 0.34);                  // fine mist of tiny drops
+            addBeads(p + 0.05, 0.010, 0.35 + 0.5 * R, uSeed + 3.0, 0.22, 0.42);       // dense texture of very tiny drops
+            addBeads(p + 0.02, 0.016, 0.25 + 0.4 * R, uSeed + 5.0, 0.2, 0.4);
+            addBeads(p, 0.022, 0.10 + 0.28 * R, uSeed, 0.16, 0.34);
             addBeads(p + 0.13, 0.04, 0.08 + 0.25 * R, uSeed + 7.0, 0.14, 0.30);      // small drops
             addBeads(p + 0.31, 0.09, 0.04 + 0.20 * R, uSeed + 11.0, 0.10, 0.26);     // fat drops
             addRunners(p, 0.05, 0.25 + 0.5 * R, 0.6 + 0.9 * R, uSeed + 21.0, 0.0055);
@@ -885,7 +903,7 @@ const RAIN_GLASS_FRAG = /* glsl */`
         vec2 uv = hit / uBdSize + 0.5 + gN * uRefr / uBdSize;
 
         // misty film everywhere, wiped clear by drops and trails
-        float lod = (1.0 - clamp(gClear, 0.0, 1.0)) * uHaze * smoothstep(0.0, 0.5, R);
+        float lod = (1.0 - clamp(gClear, 0.0, 1.0)) * uHaze * smoothstep(0.0, 0.5, R) * mix(0.8, 1.25, vnoise(p * 1.3 + 3.7)) * (1.1 - 0.3 * vUv.y);
         vec2 o = uTexel * exp2(lod) * 0.75;
         vec3 col = 0.4 * textureLod(uMap, uv, lod).rgb
                  + 0.15 * (textureLod(uMap, uv + vec2(o.x, o.y), lod).rgb + textureLod(uMap, uv - vec2(o.x, o.y), lod).rgb
@@ -894,12 +912,13 @@ const RAIN_GLASS_FRAG = /* glsl */`
 
         col *= 1.0 + 0.25 * gMask;      // a drop gathers a little light
         col *= 1.0 - 0.7 * gRim;        // dark edge ring
-        col += uGlint * gSpec * 0.5;    // highlights
+        col *= 1.0 - 0.35 * gDark;      // tiny drops: dim smudges
+        col += uGlint * gSpec * 0.5 + vec3(0.85, 0.92, 1.0) * gSpecN * 0.3;    // highlights
         gl_FragColor = vec4(col, 1.0);
     }`;
 
 // `backdrop` is the picture of the outside from ctx.backdrop(). It gets hidden: this glass draws it itself.
-export function addRainGlass(ctx, { w, h, backdrop, refr = 4.5, haze = 1.4, drop = 2.0, glint = [1.0, 0.82, 0.55] }) {
+export function addRainGlass(ctx, { w, h, backdrop, refr = 4.5, haze = 2.7, drop = 2.0, glint = [1.0, 0.82, 0.55] }) {
     backdrop.updateMatrixWorld(true);
     const map = backdrop.material.map;
     const u = {

@@ -24,8 +24,11 @@ An armchair with someone sipping a hot drink and watching the rain, a candle on 
 
 The window uses its own shader, `addRainGlass` in `wwwroot/js/kit.js`. For each pixel it finds where the view ray lands on the picture of the city outside (so parallax still works), then:
 
-- **drops:** three layers of slowly appearing and fading beads (from a fine mist of tiny drops to fat ones) plus three layers of drops that slide down in stick-slip jerks, each bending the view like a tiny water lens and carrying a soft highlight and a dark rim. No two drops are the same shape: they are tilted, squat or tall, with slightly uneven edges, the bigger ones sag into teardrops pointing up toward their trail, and some running drops carry a small satellite drop
-- **mist and trails:** a light mist softens the view; drops and the long trails they leave wipe it clear, with small droplets stranded behind. The outside view is a crisp, high-contrast city so the drops have real edges to bend
+- **drops:** four layers of slowly appearing and fading beads, from a dense texture of very tiny drops up to a few fat ones, plus three layers of running drops. No two drops are the same: each has its own strength, and its own shape (tilted, squat or tall, slightly uneven, with bigger ones sagging into teardrops pointing up toward their trail). Running drops sometimes carry a small satellite drop
+- **size changes the look:** big drops are small lenses that flip the view and carry a warm lamp highlight and a dark rim. Tiny drops are just dim smudges with a pale edge, and drops smaller than a screen pixel fade out so the glass never shimmers or crawls, at any resolution
+- **runs and trails:** drops run for a short, random distance, stop for a while and fade; each leaves a faint, slightly uneven trail with small droplets stranded behind it, so there are no neat full-height lines
+- **mist:** the glass is misted and out of focus, patchy and heavier toward the bottom; drops clear it
+- **the view outside:** a soft, glowing, out-of-focus city, as if a camera were focused on the drops
 - **controls:** the rain slider changes how many drops there are and how fast they run, and a lightning flash lights the view through the glass
 
 It is written from scratch from the general technique of drops that refract a blurred background.
