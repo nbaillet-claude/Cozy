@@ -1,6 +1,6 @@
 # Rainy Day
 
-Five cozy little rooms on a rainy day, built as a Blazor WebAssembly site. three.js draws each room and the Web Audio API makes the rain, thunder and fire sounds. There are no image or audio files: every texture, shape and sound is generated in code.
+A cozy living room on a rainy night, built as a Blazor WebAssembly site. three.js draws the room and the Web Audio API makes the rain and thunder. There are no image or audio files: every texture, shape and sound is generated in code.
 
 ## Run it
 
@@ -11,33 +11,24 @@ dotnet run
 # open http://localhost:5280
 ```
 
-Pick a room, click **come in** (browsers only allow sound after a click), then change rooms any time:
+Click **come in** (browsers only allow sound after a click). Then:
 
-- the tabs at the top, or the ‹ › arrows
-- the **←** / **→** keys, or **1**–**5**
-- a link: `?scene=cabin` (ids below)
+- **look out the window** (button at the top, or press **L**) glides the camera up to the glass so the rain fills the screen; press it again, or **L**, to go back to the room
+- move the mouse (or finger) to shift the view a little
 
-## The rooms
+## The room
 
-| # | id | Room | What's going on |
-| - | -- | ---- | --------------- |
-| 1 | `living-room` | Living room | An armchair, a steaming mug, floor lamp, bookshelf, a cat asleep on the sofa. Rainy city outside, seen through refractive rain-on-glass (see below). |
-| 2 | `window-seat` | Window seat | A teal reading nook at dusk. Someone curled up with a book and blanket, a grey cat on the cushions, a wet street outside. |
-| 3 | `attic-bedroom` | Attic bedroom | Sloped roof, a skylight over the bed with rain drumming on it, a round window, someone reading in bed. The rain sounds louder here. |
-| 4 | `kitchen` | Kitchen | Sage cabinets, a pendant lamp over the table, someone stirring a pot, a kettle, a cat on a chair, a rainy garden. |
-| 5 | `cabin` | Cabin | Log walls, a crackling stone fireplace, someone in a plaid blanket on a sheepskin rug, a cat by the hearth, pine forest in the rain. |
+An armchair with someone sipping a hot drink and watching the rain, a candle on the coffee table, a floor lamp, a table lamp, string lights, a bookshelf, a cat asleep on the sofa, and a rainy city outside. The person breathes, glances out at the rain and sips now and then.
 
-Every room has its own light, view, people and sound. Each person breathes, glances out at the rain and sips or turns a page now and then.
+## Rain on glass
 
-## Rain on glass (living room)
-
-The living-room window uses its own shader, `addRainGlass` in `wwwroot/js/kit.js`. For each pixel it finds where the view ray lands on the picture of the city outside (so parallax still works), then:
+The window uses its own shader, `addRainGlass` in `wwwroot/js/kit.js`. For each pixel it finds where the view ray lands on the picture of the city outside (so parallax still works), then:
 
 - **drops:** three layers of slowly appearing and fading beads (from a fine mist of tiny drops to fat ones) plus three layers of drops that slide down in stick-slip jerks, each bending the view like a tiny water lens and carrying a soft highlight and a dark rim. No two drops are the same shape: they are tilted, squat or tall, with slightly uneven edges, the bigger ones sag into teardrops pointing up toward their trail, and some running drops carry a small satellite drop
-- **mist and trails:** a light mist softens the view; drops and the long trails they leave wipe it clear, with small droplets stranded behind. The living room's outside view is a crisp, high-contrast city so the drops have real edges to bend
+- **mist and trails:** a light mist softens the view; drops and the long trails they leave wipe it clear, with small droplets stranded behind. The outside view is a crisp, high-contrast city so the drops have real edges to bend
 - **controls:** the rain slider changes how many drops there are and how fast they run, and a lightning flash lights the view through the glass
 
-It is written from scratch from the general technique. The other four rooms still use the simpler glass.
+It is written from scratch from the general technique of drops that refract a blurred background.
 
 ## Controls ("notes")
 
@@ -51,15 +42,18 @@ Hand-drawn paper: wobbly ink borders, taped notes, marker-pen highlights, hard o
 
 | Path | Purpose |
 | --- | --- |
-| `Pages/Home.razor`, `Pages/RoomTabs.razor` | Page, intro, room tabs and notes (C#, calls into JS) |
-| `wwwroot/js/cozyScene.js` | Engine: renderer, lighting, rain, lightning, switching rooms |
-| `wwwroot/js/kit.js` | Shared pieces: textures, outside views, people, cats, steam, rainy glass |
-| `wwwroot/js/scenes/*.js` | One file per room |
-| `wwwroot/js/cozyAudio.js` | Web Audio synth: rain, thunder, fire, clock, per-room sound profiles |
+| `Pages/Home.razor` | Page, intro, window button and notes (C#, calls into JS) |
+| `Pages/RoomTabs.razor` | Room tabs, hidden while there is only one room |
+| `wwwroot/js/cozyScene.js` | Engine: renderer, lighting, rain, lightning, camera and window view |
+| `wwwroot/js/kit.js` | Shared pieces: textures, outside views, people, cats, steam, the rain glass |
+| `wwwroot/js/scenes/livingRoom.js` | The room |
+| `wwwroot/js/cozyAudio.js` | Web Audio synth: rain, thunder, clock, sound profiles |
 | `wwwroot/lib/three/` | Vendored three.js r160 (MIT) and the few addons used |
 | `wwwroot/css/app.css` | Styling |
 
-To add a room, copy one of the files in `wwwroot/js/scenes/`, give it a new `id`, build it into `ctx.world`, return its camera and light settings, and add it to the list in `cozyScene.js`.
+## More rooms
+
+The project once had five rooms (living room, window seat, attic bedroom, kitchen, cabin). Only the living room is kept for now, but the engine still supports several: a scene is one file in `wwwroot/js/scenes/` that builds into `ctx.world` and returns its camera and lighting, and the list in `cozyScene.js` shows the tabs again when it has more than one. The other four are in git history at commit `feeba61`.
 
 ## Publish
 

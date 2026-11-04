@@ -8,7 +8,7 @@
         var s = Scenes[i];
         var n = i + 1;
         var on = s.Id == Current;
-        <button class="room @(on ? "on" : "")" role="tab" aria-selected="@on" title="@s.Name (@n)" @onclick="() => OnPick.InvokeAsync(s.Id)">
+        <button class="room @(on ? "on" : "")" role="tab" aria-selected="@(on ? "true" : "false")" title="@s.Name (@n)" @onclick="() => OnPick.InvokeAsync(s.Id)">
             <span class="num">@n</span>
             <span class="nm">@s.Name</span>
         </button>

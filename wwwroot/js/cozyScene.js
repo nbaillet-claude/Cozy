@@ -8,13 +8,10 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import * as kit from './kit.js';
 import * as audio from './cozyAudio.js';
 import livingRoom from './scenes/livingRoom.js';
-import windowSeat from './scenes/windowSeat.js';
-import atticBedroom from './scenes/atticBedroom.js';
-import kitchen from './scenes/kitchen.js';
-import cabin from './scenes/cabin.js';
 
 const { rnd, clamp01 } = kit;
-const SCENES = [livingRoom, windowSeat, atticBedroom, kitchen, cabin];
+// Only the living room for now. Add a scene by importing it here (the earlier rooms are in git history at feeba61).
+const SCENES = [livingRoom];
 
 let renderer, composer, bloom, scene, world, camera, canvas, ro;
 let running = false;
@@ -24,6 +21,7 @@ let current = null, loading = false;
 let state = { rain: 0.6, warmth: 0.65, thunder: true };
 let pointer = { x: 0, y: 0, tx: 0, ty: 0 };
 let flashLevel = 0, nextFlashAt = 0;
+let lookRaw = 0, lookTarget = 0, lookT = 0;   // 0 = in the room, 1 = up at the window
 let frames = 0, fpsEMA = 0, lastT = 0;
 let onPointer = null, onKey = null, dotnet = null;
 
@@ -265,6 +263,7 @@ function buildScene(def) {
     audio.setProfile(cfg.audio);
 
     pointer.x = pointer.y = pointer.tx = pointer.ty = 0;
+    lookRaw = lookT = lookTarget = 0;
     resize();
     positionCamera(performance.now() / 1000);
     nextFlashAt = performance.now() / 1000 + rnd(14, 24);
@@ -339,7 +338,8 @@ export async function init(canvasEl, opts = {}) {
     window.addEventListener('pointermove', onPointer, { passive: true });
     onKey = (e) => {
         if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) && e.key.startsWith('Arrow')) return;
-        if (e.key === 'ArrowRight') step(1);
+        if (e.key === 'l' || e.key === 'L') { const on = !isLookOut(); if (setLookOut(on)) dotnet?.invokeMethodAsync('OnLookChanged', on).catch(() => { }); }
+        else if (e.key === 'ArrowRight') step(1);
         else if (e.key === 'ArrowLeft') step(-1);
         else if (/^[1-9]$/.test(e.key) && SCENES[+e.key - 1]) setScene(SCENES[+e.key - 1].id).then((i) => dotnet?.invokeMethodAsync('OnSceneChanged', i.id).catch(() => { }));
     };
@@ -361,35 +361,55 @@ export function currentScene() { return current ? current.id : null; }
 function resize() {
     if (!renderer || !canvas) return;
     const w = canvas.clientWidth || window.innerWidth, h = canvas.clientHeight || window.innerHeight;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, lookTarget ? 1.5 : 2)); // the glass shader is per-pixel, so ease off while it fills the screen
     renderer.setSize(w, h, false);
     composer.setPixelRatio(renderer.getPixelRatio());
     composer.setSize(w, h);
     camera.aspect = w / h;
-    const c = cfg?.camera || DEFAULTS.camera;
-    // Narrow screens: pull back and widen so the whole scene stays in frame.
-    const narrow = clamp01(1.5 - camera.aspect);
-    camera.userData.narrow = narrow;
-    camera.fov = c.fov + narrow * c.narrow.dfov;
+    // Narrow screens: scenes pull back and widen so everything stays in frame (see camPose).
+    camera.userData.narrow = clamp01(1.5 - camera.aspect);
     camera.updateProjectionMatrix();
 }
 
-function positionCamera(t) {
-    const c = cfg.camera;
-    const n = camera.userData.narrow || 0;
-    camera.position.set(
-        c.pos[0] + pointer.x * c.parallax[0] + Math.sin(t * 0.07) * 0.08,
-        c.pos[1] - pointer.y * c.parallax[1],
-        c.pos[2] + n * c.narrow.dz
-    );
-    camera.lookAt(c.look[0] + n * c.narrow.dlook - pointer.x * 0.25, c.look[1] + n * (c.narrow.dy ?? -0.15), c.look[2]);
+// One camera set-up (room view or window view) with parallax and the narrow-screen adjustments applied.
+function camPose(c, t) {
+    const n = camera.userData.narrow || 0, nr = c.narrow || {};
+    return {
+        pos: [c.pos[0] + pointer.x * c.parallax[0] + Math.sin(t * 0.07) * 0.08, c.pos[1] - pointer.y * c.parallax[1], c.pos[2] + n * (nr.dz || 0)],
+        look: [c.look[0] + n * (nr.dlook || 0) - pointer.x * (c.lookParallax ?? 0.25), c.look[1] + n * (nr.dy ?? -0.15), c.look[2]],
+        fov: c.fov + n * (nr.dfov || 0),
+    };
 }
+
+function positionCamera(t) {
+    let pose = camPose(cfg.camera, t);
+    if (lookT > 0.0005 && cfg.lookOut) {
+        const B = camPose(cfg.lookOut, t), k = lookT, mix = (x, y) => x + (y - x) * k;
+        pose = { pos: pose.pos.map((v, i) => mix(v, B.pos[i])), look: pose.look.map((v, i) => mix(v, B.look[i])), fov: mix(pose.fov, B.fov) };
+    }
+    camera.position.set(...pose.pos);
+    camera.lookAt(...pose.look);
+    if (Math.abs(camera.fov - pose.fov) > 1e-3) { camera.fov = pose.fov; camera.updateProjectionMatrix(); }
+}
+
+// Glide up to the window and back. Returns false if this scene has no window view.
+export function setLookOut(on) {
+    if (on && !cfg?.lookOut) return false;
+    lookTarget = on ? 1 : 0;
+    resize();
+    return true;
+}
+export function isLookOut() { return lookTarget === 1; }
 
 function frame() {
     if (!running || !cfg) return;
     const now = performance.now() / 1000;
-    const dt = Math.min(0.05, now - lastT);
+    const real = Math.min(0.25, now - lastT);   // true elapsed time, for the camera glide
+    const dt = Math.min(0.05, real);
     lastT = now;
 
+    lookRaw += Math.sign(lookTarget - lookRaw) * Math.min(Math.abs(lookTarget - lookRaw), real / 1.4);
+    lookT = kit.smooth(lookRaw);
     pointer.x += (pointer.tx - pointer.x) * 0.04;
     pointer.y += (pointer.ty - pointer.y) * 0.04;
     positionCamera(now);
@@ -416,7 +436,7 @@ export function setWarmth(v) { state.warmth = clamp01(v); applyWarmth(); }
 export function setThunder(on) { state.thunder = !!on; }
 export function isNarrow() { return window.innerWidth < 640; }
 export function getStats() {
-    return { frames, fps: Math.round(fpsEMA), rain: state.rain, warmth: state.warmth, scene: current?.id, calls: renderer?.info.render.calls, tris: renderer?.info.render.triangles };
+    return { frames, fps: Math.round(fpsEMA), lookOut: +lookT.toFixed(3), rain: state.rain, warmth: state.warmth, scene: current?.id, calls: renderer?.info.render.calls, tris: renderer?.info.render.triangles };
 }
 
 export function dispose() {

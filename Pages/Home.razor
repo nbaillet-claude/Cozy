@@ -29,24 +29,34 @@ else if (!_entered)
             </svg>
             <p class="tagline">pull up a chair, the kettle's on.</p>
 
-            <p class="label">pick a room</p>
-            <RoomTabs Scenes="_scenes" Current="@_sceneId" OnPick="SelectAsync" Big="true" />
-            <p class="blurb">@CurrentBlurb</p>
+            @if (_scenes.Length > 1)
+            {
+                <p class="label">pick a room</p>
+                <RoomTabs Scenes="_scenes" Current="@_sceneId" OnPick="SelectAsync" Big="true" />
+                <p class="blurb">@CurrentBlurb</p>
+            }
 
             <button class="btn enter" disabled="@(!_sceneReady)" @onclick="EnterAsync">
                 @(_sceneReady ? "come in" : "warming up…")
             </button>
-            <p class="hint">sound on · headphones help · arrow keys change rooms</p>
+            <p class="hint">sound on · headphones help@(_scenes.Length > 1 ? " · arrow keys change rooms" : "") · press L to look out the window</p>
         </div>
     </div>
 }
 else
 {
     <header class="topbar">
-        <RoomTabs Scenes="_scenes" Current="@_sceneId" OnPick="SelectAsync" OnStep="StepAsync" Arrows="true" />
+        @if (_scenes.Length > 1)
+        {
+            <RoomTabs Scenes="_scenes" Current="@_sceneId" OnPick="SelectAsync" OnStep="StepAsync" Arrows="true" />
+        }
+        <button class="look @(_lookOut ? "on" : "")" aria-pressed="@(_lookOut ? "true" : "false")" @onclick="ToggleLookAsync">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="1.5" /><path d="M12 4v16M4 12h16" /></svg>
+            <span>@(_lookOut ? "back to the room" : "look out the window")</span>
+        </button>
     </header>
 
-    <button class="notes-tab" aria-expanded="@_panelOpen" @onclick="() => _panelOpen = !_panelOpen">
+    <button class="notes-tab" aria-expanded="@(_panelOpen ? "true" : "false")" @onclick="() => _panelOpen = !_panelOpen">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l1-5L16 4l4 4L9 19z M14 6l4 4" /></svg>
         <span>@(_panelOpen ? "close" : "notes")</span>
     </button>
@@ -58,11 +68,11 @@ else
             <h2>notes</h2>
 
             <div class="checks">
-                <button class="check @(_soundOn ? "on" : "")" role="switch" aria-checked="@_soundOn" @onclick="ToggleSoundAsync">
+                <button class="check @(_soundOn ? "on" : "")" role="switch" aria-checked="@(_soundOn ? "true" : "false")" @onclick="ToggleSoundAsync">
                     <span class="box"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 11 L8 16 L17 4" /></svg></span>
                     <span>sound</span>
                 </button>
-                <button class="check @(_thunder ? "on" : "")" role="switch" aria-checked="@_thunder" @onclick="ToggleThunderAsync">
+                <button class="check @(_thunder ? "on" : "")" role="switch" aria-checked="@(_thunder ? "true" : "false")" @onclick="ToggleThunderAsync">
                     <span class="box"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 11 L8 16 L17 4" /></svg></span>
                     <span>thunder</span>
                 </button>
@@ -102,6 +112,7 @@ else
     private bool _sceneReady;
     private bool _webGlFailed;
     private bool _entered;
+    private bool _lookOut;
     private bool _panelOpen = true;
     private bool _soundOn = true;
     private bool _thunder = true;
@@ -141,6 +152,21 @@ else
         }
 
         StateHasChanged();
+    }
+
+    // Called from JS when the L key toggles the window view.
+    [JSInvokable]
+    public void OnLookChanged(bool on)
+    {
+        _lookOut = on;
+        StateHasChanged();
+    }
+
+    private async Task ToggleLookAsync()
+    {
+        if (_scene is null) return;
+        var want = !_lookOut;
+        if (await _scene.InvokeAsync<bool>("setLookOut", want)) _lookOut = want;
     }
 
     // Called from JS when the keyboard changes the room.
