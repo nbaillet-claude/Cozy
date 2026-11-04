@@ -287,7 +287,7 @@ export function backdropTexture(style = 'city', pal = {}) {
         }
         for (const [wx, wy, a] of lit) {
             g.fillStyle = a > 0.8 ? 'rgba(255,205,125,0.95)' : `rgba(${P.lit},${0.35 + a * 0.4})`;
-            g.fillRect(wx, wy, 9, 11);
+            g.fillRect(wx, wy, P.winW ?? 9, P.winH ?? 11);
         }
     };
     const bokeh = (n, y0, y1, rmin, rmax, cols, alpha = 0.55) => {
@@ -413,7 +413,7 @@ export function backdropTexture(style = 'city', pal = {}) {
 
     const out = document.createElement('canvas'); out.width = W; out.height = H;
     const og = out.getContext('2d');
-    og.filter = 'blur(3px)'; og.drawImage(src, 0, 0);
+    og.filter = `blur(${P.blur ?? 3}px)`; og.drawImage(src, 0, 0);
     const t = new THREE.CanvasTexture(out);
     t.colorSpace = THREE.SRGBColorSpace;
     return t;
@@ -758,7 +758,7 @@ const RAIN_GLASS_FRAG = /* glsl */`
         vec3 h1 = normalize(vec3(-0.45, 0.55, 0.7) + vec3(0.0, 0.0, 1.0)); // lamp, upper left
         vec3 h2 = normalize(vec3(0.5, -0.4, 0.75) + vec3(0.0, 0.0, 1.0));  // soft bounce, lower right
         gSpec += (pow(max(dot(n3, h1), 0.0), 55.0) + 0.35 * pow(max(dot(n3, h2), 0.0), 28.0)) * inside;
-        gRim = max(gRim, smoothstep(0.55, 0.98, dist) * inside);
+        gRim = max(gRim, smoothstep(0.5, 0.95, dist) * inside);
         gN += -nd * inside;           // inverted, magnified look-up
         gMask = max(gMask, inside);
         gClear = max(gClear, inside); // a drop is clear water, even on misty glass
@@ -775,7 +775,7 @@ const RAIN_GLASS_FRAG = /* glsl */`
         if (r < 0.02) return;
         vec2 d = (f - o) / r;
         float dist = length(d);
-        float inside = 1.0 - smoothstep(0.82, 1.0, dist);
+        float inside = 1.0 - smoothstep(0.8, 0.98, dist);
         if (inside > 0.0) lens(d, dist, inside);
     }
 
@@ -806,12 +806,16 @@ const RAIN_GLASS_FRAG = /* glsl */`
 
             // the clear trail it leaves behind
             float up = p.y - yh;
-            float tl = min(cyc * period, 0.6);
+            float tl = min(cyc * period, 1.2);
             if (up > 0.0 && up < tl) {
                 float along = up / tl;
                 float dx = p.x - (xBase + sin(p.y * 31.0 + ph) * 0.0035);
-                float w = rx * 0.5 * (1.0 - 0.6 * along);
-                float tm = (1.0 - smoothstep(w * 0.5, w, abs(dx))) * (1.0 - smoothstep(0.55, 1.0, along)) * life;
+                float w = rx * 0.65 * (1.0 - 0.55 * along);
+                float tm = (1.0 - smoothstep(w * 0.5, w, abs(dx))) * (1.0 - smoothstep(0.6, 1.0, along)) * life;
+                float e = abs(dx) / w;
+                float ring = smoothstep(0.5, 0.9, e) * (1.0 - smoothstep(0.9, 1.25, e)) * (1.0 - smoothstep(0.6, 1.0, along)) * life;
+                gRim = max(gRim, ring * 0.4);   // a faint dark edge so the trail reads
+                gMask = max(gMask, tm * 0.5);
                 gClear = max(gClear, tm * 0.95);
                 gN += vec2(clamp(dx / w, -1.0, 1.0), 0.0) * -0.25 * tm;
 
@@ -836,11 +840,12 @@ const RAIN_GLASS_FRAG = /* glsl */`
         gN = vec2(0.0); gMask = 0.0; gClear = 0.0; gSpec = 0.0; gRim = 0.0;
         float R = uRain;
         if (R > 0.01) {
-            float dens = 0.06 + 0.4 * R;
-            addBeads(p, 0.04, dens, uSeed, 0.14, 0.30);
-            addBeads(p + 0.31, 0.09, dens * 0.5, uSeed + 11.0, 0.10, 0.26);
-            addRunners(p, 0.075, 0.2 + 0.55 * R, 0.6 + 0.9 * R, uSeed + 21.0, 0.0075);
-            addRunners(p + 0.2, 0.15, 0.12 + 0.4 * R, 0.5 + 0.7 * R, uSeed + 33.0, 0.011);
+            addBeads(p, 0.022, 0.10 + 0.28 * R, uSeed, 0.16, 0.34);                  // fine mist of tiny drops
+            addBeads(p + 0.13, 0.04, 0.08 + 0.25 * R, uSeed + 7.0, 0.14, 0.30);      // small drops
+            addBeads(p + 0.31, 0.09, 0.04 + 0.20 * R, uSeed + 11.0, 0.10, 0.26);     // fat drops
+            addRunners(p, 0.05, 0.25 + 0.5 * R, 0.6 + 0.9 * R, uSeed + 21.0, 0.0055);
+            addRunners(p + 0.2, 0.09, 0.3 + 0.55 * R, 0.55 + 0.8 * R, uSeed + 33.0, 0.0085);
+            addRunners(p + 0.45, 0.16, 0.14 + 0.4 * R, 0.5 + 0.7 * R, uSeed + 47.0, 0.012);
         }
 
         // where this view ray lands on the picture of the outside, then bend it through the drops
@@ -859,13 +864,13 @@ const RAIN_GLASS_FRAG = /* glsl */`
         col *= vec3(uBright, uBright * 1.02, uBright * 1.08);   // follows the lightning flash
 
         col *= 1.0 + 0.25 * gMask;      // a drop gathers a little light
-        col *= 1.0 - 0.5 * gRim;        // dark edge ring
-        col += uGlint * gSpec * 0.9;    // highlights
+        col *= 1.0 - 0.7 * gRim;        // dark edge ring
+        col += uGlint * gSpec * 0.5;    // highlights
         gl_FragColor = vec4(col, 1.0);
     }`;
 
 // `backdrop` is the picture of the outside from ctx.backdrop(). It gets hidden: this glass draws it itself.
-export function addRainGlass(ctx, { w, h, backdrop, refr = 3.4, haze = 3.2, drop = 2.6, glint = [1.0, 0.82, 0.55] }) {
+export function addRainGlass(ctx, { w, h, backdrop, refr = 4.5, haze = 1.4, drop = 2.0, glint = [1.0, 0.82, 0.55] }) {
     backdrop.updateMatrixWorld(true);
     const map = backdrop.material.map;
     const u = {

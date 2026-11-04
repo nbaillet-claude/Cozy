@@ -33,8 +33,8 @@ Every room has its own light, view, people and sound. Each person breathes, glan
 
 The living-room window uses its own shader, `addRainGlass` in `wwwroot/js/kit.js`. For each pixel it finds where the view ray lands on the picture of the city outside (so parallax still works), then:
 
-- **drops:** slowly appearing and fading beads, plus drops that slide down in stick-slip jerks, each bending the view like a tiny water lens and carrying a highlight and a dark rim
-- **mist and trails:** the glass is misted and out of focus; drops and the trails they leave wipe it clear, with small droplets stranded behind
+- **drops:** three layers of slowly appearing and fading beads (from a fine mist of tiny drops to fat ones) plus three layers of drops that slide down in stick-slip jerks, each bending the view like a tiny water lens and carrying a soft highlight and a dark rim
+- **mist and trails:** a light mist softens the view; drops and the long trails they leave wipe it clear, with small droplets stranded behind. The living room's outside view is a crisp, high-contrast city so the drops have real edges to bend
 - **controls:** the rain slider changes how many drops there are and how fast they run, and a lightning flash lights the view through the glass
 
 It is written from scratch from the general technique. The other four rooms still use the simpler glass.
