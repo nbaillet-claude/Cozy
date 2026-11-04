@@ -61,8 +61,16 @@ The project once had five rooms (living room, window seat, attic bedroom, kitche
 
 ## Publish
 
+### GitHub Pages (automatic)
+
+`.github/workflows/pages.yml` builds the site and deploys it to GitHub Pages on every push to `claude/cozy-rain-blazor-threejs-eb3tkc` (and on demand from the Actions tab). It sets the base path to the repository name and adds a `404.html` and `.nojekyll`.
+
+One-time setup: in the repository, go to **Settings > Pages** and set **Source** to **GitHub Actions**. The site is then at `https://<user>.github.io/<repo>/`. If you change the deploying branch, edit the `branches` list in the workflow.
+
+### Anywhere else
+
 ```bash
 dotnet publish -c Release -o out
 ```
 
-`out/wwwroot` is a static site you can serve from any static host. If it is not at the site root, change `<base href="/">` in `wwwroot/index.html`.
+`out/wwwroot` is a static site you can serve from any static host. If it is not at the site root, change `<base href="/">` in `wwwroot/index.html` to the folder it is served from.
